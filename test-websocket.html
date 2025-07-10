@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        #messages { height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background-color: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    
+    <div id="status" class="status disconnected">Disconnected</div>
+    
+    <button onclick="connect()">Connect</button>
+    <button onclick="disconnect()">Disconnect</button>
+    <button onclick="sendAuth()">Send Auth</button>
+    <button onclick="testHealth()">Test Health</button>
+    
+    <h3>Messages:</h3>
+    <div id="messages"></div>
+
+    <script>
+        let ws = null;
+        const statusDiv = document.getElementById('status');
+        const messagesDiv = document.getElementById('messages');
+
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            messagesDiv.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function updateStatus(status, className) {
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${className}`;
+        }
+
+        async function testHealth() {
+            try {
+                log('Testing health endpoint...');
+                const response = await fetch('http://127.0.0.1:5001/health');
+                const data = await response.json();
+                log('Health check response: ' + JSON.stringify(data));
+            } catch (error) {
+                log('Health check failed: ' + error);
+            }
+        }
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('Already connected');
+                return;
+            }
+
+            const wsUrl = 'ws://127.0.0.1:5001/ws/submissions';
+            log('Attempting to connect to ' + wsUrl);
+            updateStatus('Connecting...', 'connecting');
+
+            try {
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = function(event) {
+                    log('WebSocket connected successfully');
+                    updateStatus('Connected', 'connected');
+                };
+
+                ws.onmessage = function(event) {
+                    log('Received: ' + event.data);
+                };
+
+                ws.onclose = function(event) {
+                    log(`WebSocket disconnected: code=${event.code}, reason=${event.reason}`);
+                    updateStatus('Disconnected', 'disconnected');
+                };
+
+                ws.onerror = function(error) {
+                    log('WebSocket error: ' + error);
+                    log('Error details: ' + JSON.stringify({
+                        type: error.type,
+                        target: error.target,
+                        isTrusted: error.isTrusted
+                    }));
+                    updateStatus('Error', 'disconnected');
+                };
+
+            } catch (error) {
+                log('Failed to create WebSocket: ' + error);
+                updateStatus('Error', 'disconnected');
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close(1000, 'Manual disconnect');
+                ws = null;
+            }
+        }
+
+        function sendAuth() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const authMessage = {
+                    type: 'auth',
+                    userId: 'test-user-123'
+                };
+                log('Sending auth message: ' + JSON.stringify(authMessage));
+                ws.send(JSON.stringify(authMessage));
+            } else {
+                log('WebSocket not connected');
+            }
+        }
+
+        // Auto-connect on page load
+        window.onload = function() {
+            log('Page loaded, attempting connection...');
+            connect();
+        };
+    </script>
+</body>
+</html> 
