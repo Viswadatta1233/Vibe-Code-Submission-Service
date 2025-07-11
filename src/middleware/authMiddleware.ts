@@ -12,7 +12,7 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   request.log.info({ token }, 'Received JWT token');
   request.log.info({ JWT_SECRET }, 'JWT_SECRET used for verification');
   try {
-    const decoded = jwt.verify(token, JWT_SECRET as string) as any;
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
     // @ts-ignore
     request.user = decoded;
   } catch (err) {
