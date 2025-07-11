@@ -6,29 +6,60 @@ import { addSubmissionJob } from '../producers/submissionProducer';
 const PROBLEM_SERVICE_URL = process.env.PROBLEM_SERVICE_URL || 'http://localhost:5000/api/problems';
 
 export async function createSubmission(request: FastifyRequest, reply: FastifyReply) {
+  console.log('📝 [SUBMISSION] Create submission request received');
+  console.log('📝 [SUBMISSION] Request URL:', request.url);
+  console.log('📝 [SUBMISSION] Request method:', request.method);
+  console.log('📝 [SUBMISSION] Request headers:', JSON.stringify(request.headers, null, 2));
+  
   try {
-    console.log('Creating submission');
+    console.log('🔍 [SUBMISSION] Extracting user information...');
     // @ts-ignore
     const userId = request.user.userId;
+    console.log('👤 [SUBMISSION] User ID from token:', userId);
+    console.log('👤 [SUBMISSION] Full user object:', request.user);
+    
     const problemId = (request.query as any).problemId;
     const { userCode, language } = request.body as any;
+    
+    console.log('📋 [SUBMISSION] Request parameters:', {
+      problemId,
+      language,
+      userCodeLength: userCode ? userCode.length : 0
+    });
+    
     if (!problemId || !userCode || !language) {
-      console.log('Missing required fields');
+      console.log('❌ [SUBMISSION] Missing required fields');
+      console.log('❌ [SUBMISSION] problemId:', problemId);
+      console.log('❌ [SUBMISSION] userCode:', userCode ? 'present' : 'missing');
+      console.log('❌ [SUBMISSION] language:', language);
       return reply.status(400).send({ message: 'Missing required fields' });
     }
+    
     // Fetch problem from Problem Service
-    console.log('Fetching problem from Problem Service:', `${PROBLEM_SERVICE_URL}/${problemId}`);
+    console.log('🔍 [SUBMISSION] Fetching problem from Problem Service:', `${PROBLEM_SERVICE_URL}/${problemId}`);
     const { data: problem } = await axios.get(`${PROBLEM_SERVICE_URL}/${problemId}`);
+    
     if (!problem) {
-      console.log('Problem not found');
+      console.log('❌ [SUBMISSION] Problem not found');
       return reply.status(404).send({ message: 'Problem not found' });
     }
+    
+    console.log('✅ [SUBMISSION] Problem fetched successfully:', {
+      problemId: problem._id,
+      title: problem.title,
+      codeStubsCount: problem.codeStubs ? problem.codeStubs.length : 0
+    });
+    
     // Find code stub for language
     const stub = problem.codeStubs.find((s: any) => s.language === language);
     if (!stub) {
-      console.log('Code stub for language not found');
+      console.log('❌ [SUBMISSION] Code stub for language not found:', language);
+      console.log('❌ [SUBMISSION] Available languages:', problem.codeStubs.map((s: any) => s.language));
       return reply.status(400).send({ message: 'Code stub for language not found' });
     }
+    
+    console.log('✅ [SUBMISSION] Code stub found for language:', language);
+    
     // For Java, store only the user method as code in the DB, but for execution, expect the full method (with signature)
     const fullCode = (stub.startSnippet || '') + (userCode || '') + (stub.endSnippet || '');
     const isJava = language === 'JAVA';
@@ -51,6 +82,8 @@ export async function createSubmission(request: FastifyRequest, reply: FastifyRe
     }
     
     const codeForDb = (stub.startSnippet || '') + (userCode || '') + (stub.endSnippet || '');
+    
+    console.log('💾 [SUBMISSION] Creating submission in database...');
     const submission = new Submission({
       userId,
       problemId,
@@ -59,13 +92,18 @@ export async function createSubmission(request: FastifyRequest, reply: FastifyRe
       status: 'Pending',
     });
     await submission.save();
-    console.log(`Submission created: ${submission._id}`);
+    console.log(`✅ [SUBMISSION] Submission created: ${submission._id}`);
+    
     // Preprocess testcases to ensure input format is as expected for Java
     const formattedTestcases = problem.testcases.map((t: any) => ({
       ...t,
       input: t.input.replace(/\],\s*/, '],') // ensures consistent split for Java
     }));
+    
+    console.log('📊 [SUBMISSION] Testcases formatted:', formattedTestcases.length, 'testcases');
+    
     // Add job to queue (fire-and-forget)
+    console.log('🚀 [SUBMISSION] Adding job to queue...');
     addSubmissionJob({
       submissionId: submission._id,
       userId,
@@ -73,11 +111,16 @@ export async function createSubmission(request: FastifyRequest, reply: FastifyRe
       language,
       fullCode: codeForJob,
       testcases: formattedTestcases
-    }).catch(err => console.error('Queue error', err));
-    console.log(`Job added to queue: ${submission._id}`);
+    }).catch(err => {
+      console.error('❌ [SUBMISSION] Queue error:', err);
+    });
+    
+    console.log(`✅ [SUBMISSION] Job added to queue: ${submission._id}`);
     return reply.status(201).send(submission);
   } catch (err: any) {
-    console.error('Submission error:', err);
+    console.error('❌ [SUBMISSION] Submission error:', err);
+    console.error('❌ [SUBMISSION] Error message:', err.message);
+    console.error('❌ [SUBMISSION] Error stack:', err.stack);
     return reply.status(500).send({ message: err.message });
   }
 }
