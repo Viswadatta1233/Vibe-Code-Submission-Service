@@ -10,6 +10,8 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   }
   const token = authHeader.split(' ')[1];
   try {
+    console.log(token);
+    console.log(JWT_SECRET);
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     // @ts-ignore
     request.user = decoded;
