@@ -40,9 +40,6 @@ COPY --from=builder /app/dist ./dist
 # Copy source for worker (needed for ts-node)
 COPY --from=builder /app/src ./src
 
-# Create health check endpoint
-RUN echo 'app.get("/health", (req, res) => { res.status(200).json({ status: "OK", timestamp: new Date().toISOString(), service: "submission-service" }); });' >> dist/index.js
-
 # Change ownership
 RUN chown -R nodejs:nodejs /app
 

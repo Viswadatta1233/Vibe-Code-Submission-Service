@@ -31,12 +31,15 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --only=production && npm cache clean --force
+# Install dependencies (including dev dependencies for ts-node)
+RUN npm ci --include=dev && npm cache clean --force
 
 # Copy built application and source
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/src ./src
+
+# Build worker TypeScript
+RUN npm run build:worker
 
 # Change ownership
 RUN chown -R nodejs:nodejs /app
@@ -45,4 +48,4 @@ RUN chown -R nodejs:nodejs /app
 USER nodejs
 
 # Start the worker
-CMD ["npm", "run", "worker"] 
+CMD ["node", "dist/workers/submissionWorker.js"] 
