@@ -10,17 +10,26 @@ import { runCpp } from '../executors/cppExecutor';
 
 dotenv.config();
 
+console.log('🚀 [WORKER] Starting Submission Worker...');
+console.log('🔧 [WORKER] Environment variables loaded');
+console.log('🔧 [WORKER] MONGO_URI:', process.env.MONGO_URI || 'not set');
+console.log('🔧 [WORKER] REDIS_HOST:', process.env.REDIS_HOST || 'host.docker.internal');
+console.log('🔧 [WORKER] REDIS_PORT:', process.env.REDIS_PORT || 6379);
+
 mongoose.connect(process.env.MONGO_URI || '', {})
-  .then(() => console.log('Worker connected to MongoDB'))
-  .catch(err => console.error('Worker MongoDB connection error:', err));
+  .then(() => console.log('✅ [WORKER] Connected to MongoDB'))
+  .catch(err => console.error('❌ [WORKER] MongoDB connection error:', err));
 
 const redisOptions = {
   host: process.env.REDIS_HOST || 'host.docker.internal',
   port: Number(process.env.REDIS_PORT) || 6379,
 };
 
+console.log('🔗 [WORKER] Redis connection options:', redisOptions);
+
 // Function to send WebSocket updates via HTTP
 async function sendWebSocketUpdate(userId: string, submissionId: string, data: any) {
+  console.log('📡 [WORKER] Sending WebSocket update:', { userId, submissionId, data });
   try {
     const response = await axios.post('http://localhost:5001/api/websocket/update', {
       userId, submissionId, data
@@ -31,16 +40,19 @@ async function sendWebSocketUpdate(userId: string, submissionId: string, data: a
     });
     
     if (response.status === 200) {
-      console.log(`✅ WebSocket update sent for user ${userId}, submission ${submissionId}`);
+      console.log(`✅ [WORKER] WebSocket update sent for user ${userId}, submission ${submissionId}`);
     } else {
-      console.error(`❌ Failed to send WebSocket update for user ${userId}:`, response.statusText);
+      console.error(`❌ [WORKER] Failed to send WebSocket update for user ${userId}:`, response.statusText);
     }
   } catch (error) {
-    console.error(`❌ Error sending WebSocket update for user ${userId}:`, error);
+    console.error(`❌ [WORKER] Error sending WebSocket update for user ${userId}:`, error);
   }
 }
 
 const submissionWorker = new Worker('submission-queue', async (job: Job) => {
+  console.log('🎯 [WORKER] Job received:', job.id);
+  console.log('📋 [WORKER] Job data:', JSON.stringify(job.data, null, 2));
+  
   const { submissionId, userId, problemId, language, fullCode, testcases } = job.data;
   
   try {
@@ -69,8 +81,11 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
     console.log('🔧 About to call runPython...');
   }
   
+  console.log('🔄 [WORKER] Starting job processing...');
+  
   // Send "Running" status update
   await Submission.findByIdAndUpdate(submissionId, { status: 'Running' });
+  console.log('✅ [WORKER] Updated submission status to Running');
   await sendWebSocketUpdate(userId, submissionId, { status: 'Running' });
   
   // Add a small delay to make the "Running" state visible
@@ -79,8 +94,11 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
   let status = 'Success';
   let results: any[] = [];
   
+  console.log(`🔄 [WORKER] Processing ${testcases.length} test cases...`);
+  
   for (let i = 0; i < testcases.length; i++) {
     const testcase = testcases[i];
+    console.log(`📝 [WORKER] Processing test case ${i + 1}/${testcases.length}:`, testcase);
     let execResult;
     
     if (language === 'JAVA') {
@@ -172,6 +190,9 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
     }
   }
   
+  console.log(`✅ [WORKER] All test cases processed. Final status: ${status}`);
+  console.log(`📊 [WORKER] Results:`, results);
+  
   // Update submission in DB
   await Submission.findByIdAndUpdate(submissionId, { 
     status,
@@ -183,6 +204,7 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
       expected: result.expected
     }))
   });
+  console.log('✅ [WORKER] Updated submission in database');
   
   // Send final status update via WebSocket
   await sendWebSocketUpdate(userId, submissionId, { 
@@ -215,11 +237,11 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
 }, { connection: redisOptions });
 
 submissionWorker.on('completed', (job) => {
-  console.log(`Job ${job.id} completed`);
+  console.log(`✅ [WORKER] Job ${job.id} completed successfully`);
 });
 
 submissionWorker.on('failed', async (job, err) => {
-  console.error(`Job ${job?.id} failed:`, err);
+  console.error(`❌ [WORKER] Job ${job?.id} failed:`, err);
   
   if (job) {
     const { submissionId, userId } = job.data;
@@ -236,7 +258,19 @@ submissionWorker.on('failed', async (job, err) => {
 });
 
 submissionWorker.on('active', (job) => {
-  console.log(`Job ${job.id} started processing`);
+  console.log(`🚀 [WORKER] Job ${job.id} started processing`);
+});
+
+submissionWorker.on('ready', () => {
+  console.log('✅ [WORKER] Worker is ready and listening for jobs');
+});
+
+submissionWorker.on('error', (err) => {
+  console.error('❌ [WORKER] Worker error:', err);
+});
+
+submissionWorker.on('closed', () => {
+  console.log('🔌 [WORKER] Worker connection closed');
 });
 
 export default submissionWorker;
