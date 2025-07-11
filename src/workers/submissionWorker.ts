@@ -43,6 +43,8 @@ async function sendWebSocketUpdate(userId: string, submissionId: string, data: a
 const submissionWorker = new Worker('submission-queue', async (job: Job) => {
   const { submissionId, userId, problemId, language, fullCode, testcases } = job.data;
   
+  try {
+  
   console.log('🔍 Worker Debug - Job Data:');
   console.log('📥 Language:', language);
   console.log('📥 Language type:', typeof language);
@@ -83,7 +85,15 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
     
     if (language === 'JAVA') {
       // Accept the full method (with signature) as userCode for Java
-      execResult = await runJava(fullCode, testcase.input);
+      console.log('🚀 Calling runJava with:', { fullCode, input: testcase.input });
+      try {
+        execResult = await runJava(fullCode, testcase.input);
+        console.log('✅ runJava completed successfully');
+        console.log('📤 runJava result:', execResult);
+      } catch (error) {
+        console.error('❌ runJava failed with error:', error);
+        throw error;
+      }
     } else if (language === 'PYTHON') {
       console.log('🚀 Calling runPython with:', { fullCode, input: testcase.input });
       try {
@@ -187,6 +197,21 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
   });
   
   return { status, results };
+  } catch (error) {
+    console.error('❌ Worker job processing failed:', error);
+    
+    // Update submission status to failed
+    await Submission.findByIdAndUpdate(submissionId, { status: 'Failed' });
+    
+    // Send failure update via WebSocket
+    await sendWebSocketUpdate(userId, submissionId, { 
+      status: 'Failed', 
+      error: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+    
+    // Re-throw the error so BullMQ can handle it
+    throw error;
+  }
 }, { connection: redisOptions });
 
 submissionWorker.on('completed', (job) => {
