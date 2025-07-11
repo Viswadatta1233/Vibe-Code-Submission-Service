@@ -18,7 +18,7 @@ console.log('🔧 [WORKER] REDIS_PORT:', process.env.REDIS_PORT || 6379);
 
 mongoose.connect(process.env.MONGO_URI || '', {})
   .then(() => console.log('✅ [WORKER] Connected to MongoDB'))
-  .catch(err => console.error('❌ c[WORKER] MongoDB connection error:', err));
+  .catch(err => console.error('❌ cj[WORKER] MongoDB connection error:', err));
 
 const redisOptions = {
   host: process.env.REDIS_HOST || 'host.docker.internal',
@@ -31,7 +31,8 @@ console.log('🔗 [WORKER] Redis connection options:', redisOptions);
 async function sendWebSocketUpdate(userId: string, submissionId: string, data: any) {
   console.log('📡 [WORKER] Sending WebSocket update:', { userId, submissionId, data });
   try {
-    const response = await axios.post('http://localhost:5001/api/websocket/update', {
+    // Use host.docker.internal to connect to the host machine
+    const response = await axios.post('http://host.docker.internal:5001/api/websocket/update', {
       userId, submissionId, data
     }, {
       headers: {
