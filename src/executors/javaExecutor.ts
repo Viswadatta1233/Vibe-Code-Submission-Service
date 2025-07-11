@@ -293,147 +293,9 @@ export async function runJava(fullCode: string, input: string): Promise<{ stdout
   console.log('📥 Input code:', fullCode);
   console.log('📥 Input data:', input);
   
-  const docker = new Docker();
-  const { path, cleanup } = await dir({ unsafeCleanup: true });
-  const codeToRun = buildJavaCode(fullCode);
-  const filePath = `${path}/Main.java`;
-  
-  console.log('📁 Writing code to file:', filePath);
-  console.log('📄 Code to run:', codeToRun);
-  
-  try {
-    // Write the code to file
-    await writeFile(filePath, codeToRun);
-    console.log('✅ Code written to file successfully');
-    
-    // Verify file was written
-    const fs = require('fs');
-    const fileExists = fs.existsSync(filePath);
-    console.log('🔍 File exists check:', fileExists);
-    if (fileExists) {
-      const fileContent = fs.readFileSync(filePath, 'utf8');
-      console.log('📄 File content length:', fileContent.length);
-    }
-    
-    // Pull the image before creating the container
-    console.log('📦 Pulling Java image...');
-    await docker.pull(JAVA_IMAGE);
-    console.log('✅ Java image pulled successfully');
-    
-    // Create container with more explicit volume mounting
-    console.log('🔨 Creating Java container...');
-    const container = await docker.createContainer({
-      Image: JAVA_IMAGE,
-      Cmd: ['sh', '-c', `cd /usr/src/app && ls -la && cat Main.java && javac Main.java && echo ${JSON.stringify(input)} | java Main`],
-      HostConfig: { 
-        Binds: [`${path}:/usr/src/app:ro`], 
-        AutoRemove: false, // Don't auto-remove so we can get logs
-        Memory: 512 * 1024 * 1024, // 512MB memory limit
-        CpuPeriod: 100000,
-        CpuQuota: 50000, // 50% CPU limit
-        NetworkMode: 'none', // Disable network for security
-      },
-      WorkingDir: '/usr/src/app',
-      Tty: false,
-      OpenStdin: true,
-      StdinOnce: false,
-    });
-    
-    console.log('✅ Container created:', container.id);
-    
-    // Start the container
-    await container.start();
-    console.log('🚀 Container started');
-    
-    // Wait for container to finish with timeout
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Container execution timeout (30s)')), 30000);
-    });
-    
-    const waitPromise = container.wait();
-    const result = await Promise.race([waitPromise, timeoutPromise]) as any;
-    console.log('⏹️ Container finished with exit code:', result.StatusCode);
-    
-    // Get container logs
-    const logs = await container.logs({
-      stdout: true,
-      stderr: true,
-      tail: 1000
-    });
-    
-    // Parse logs
-    let stdout = '', stderr = '';
-    const logBuffer = Buffer.from(logs);
-    
-    // Docker logs come with 8-bit headers for stream multiplexing
-    // Format: [stream_type][size][payload]
-    let offset = 0;
-    while (offset < logBuffer.length) {
-      if (offset + 8 > logBuffer.length) break;
-      
-      // Read the header
-      const streamType = logBuffer[offset];
-      const size = logBuffer.readUInt32BE(offset + 4);
-      
-      if (offset + 8 + size > logBuffer.length) break;
-      
-      // Extract the payload
-      const payload = logBuffer.slice(offset + 8, offset + 8 + size).toString();
-      
-      // Stream type: 1 = stdout, 2 = stderr
-      if (streamType === 1) {
-        stdout += payload;
-      } else if (streamType === 2) {
-        stderr += payload;
-      }
-      
-      offset += 8 + size;
-    }
-    
-    console.log('📤 Container stdout:', stdout);
-    console.log('📤 Container stderr:', stderr);
-    
-    // Remove container
-    await container.remove();
-    console.log('🗑️ Container removed');
-    
-    // If the first approach failed, try alternative approach
-    if (stderr.includes('file not found') || stderr.includes('Main.java')) {
-      console.log('🔄 First approach failed, trying alternative method...');
-      return await runJavaAlternative(fullCode, input);
-    }
-    
-    return { 
-      stdout: stdout.trim(), 
-      stderr: stderr.trim() 
-    };
-    
-  } catch (err: any) {
-    console.error('❌ Error in Java execution:', err);
-    
-    // If it's a timeout error, try to kill the container
-    if (err.message.includes('timeout')) {
-      try {
-        const containers = await docker.listContainers({ all: true });
-        const runningContainer = containers.find((c: any) => c.Image.includes('eclipse-temurin'));
-        if (runningContainer) {
-          const container = docker.getContainer(runningContainer.Id);
-          await container.kill();
-          await container.remove();
-          console.log('🛑 Killed and removed timeout container');
-        }
-      } catch (killErr) {
-        console.error('Failed to kill timeout container:', killErr);
-      }
-    }
-    
-    return { 
-      stdout: '', 
-      stderr: err.message || 'Unknown error occurred' 
-    };
-  } finally {
-    await cleanup();
-  }
+  // Use the direct method as primary approach since volume mounting is unreliable
+  console.log('🔄 Using direct file creation method as primary approach...');
+  return await runJavaDirect(fullCode, input);
 }
 
 // Alternative approach using exec instead of logs
@@ -545,13 +407,16 @@ export async function runJavaDirect(fullCode: string, input: string): Promise<{ 
   try {
     await docker.pull(JAVA_IMAGE);
     
-    // Use a simpler approach with printf to avoid shell escaping issues
+    // Use a safer approach with base64 encoding to avoid shell escaping issues
+    const codeToRunBase64 = Buffer.from(codeToRun).toString('base64');
+    const inputBase64 = Buffer.from(input).toString('base64');
+    
     const container = await docker.createContainer({
       Image: JAVA_IMAGE,
       Cmd: ['sh', '-c', `
-        printf '%s' '${codeToRun.replace(/'/g, "'\"'\"'")}' > Main.java
+        echo '${codeToRunBase64}' | base64 -d > Main.java
         javac Main.java
-        echo '${input.replace(/'/g, "'\"'\"'")}' | java Main
+        echo '${inputBase64}' | base64 -d | java Main
       `],
       HostConfig: { 
         AutoRemove: false,
