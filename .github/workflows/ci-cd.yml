@@ -1,0 +1,170 @@
+name: Submission Service CI/CD
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  DOCKER_IMAGE: submission-service
+  DOCKER_WORKER_IMAGE: submission-worker
+  DOCKER_TAG: ${{ github.sha }}
+
+jobs:
+  build:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+        
+    - name: Build and push main service image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}
+          ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Build and push worker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile.worker
+        push: true
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_WORKER_IMAGE }}:${{ env.DOCKER_TAG }}
+          ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_WORKER_IMAGE }}:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Output image info
+      run: |
+        echo "Images built and pushed successfully!"
+        echo "Main Service: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}"
+        echo "Worker: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_WORKER_IMAGE }}:${{ env.DOCKER_TAG }}"
+        
+  deploy:
+    name: Deploy to EC2
+    runs-on: self-hosted
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+        
+    - name: Pull latest images
+      run: |
+        docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}
+        docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_WORKER_IMAGE }}:${{ env.DOCKER_TAG }}
+        
+    - name: Stop and remove old containers
+      run: |
+        docker stop submission-service || true
+        docker rm submission-service || true
+        docker stop submission-worker || true
+        docker rm submission-worker || true
+        
+    - name: Create Docker network
+      run: |
+        docker network create submission-network || true
+        
+    - name: Start Redis container (if not running)
+      run: |
+        if ! docker ps | grep -q redis; then
+          docker run -d \
+            --name redis \
+            --restart unless-stopped \
+            -p 6379:6379 \
+            redis:7-alpine
+        fi
+        
+    - name: Start main service container
+      run: |
+        docker run -d \
+          --name submission-service \
+          --restart unless-stopped \
+          --env-file /var/www/submission-service/.env \
+          -p 3001:3001 \
+          --add-host host.docker.internal:host-gateway \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}
+        
+    - name: Wait for main service to be ready
+      run: |
+        echo "Waiting for main service to start..."
+        sleep 15
+        
+    - name: Check main service status
+      run: |
+        echo "Main service status:"
+        docker ps -a | grep submission-service
+        echo "Main service logs:"
+        docker logs submission-service
+        
+    - name: Start worker container
+      run: |
+        docker run -d \
+          --name submission-worker \
+          --restart unless-stopped \
+          --env-file /var/www/submission-service/.env \
+          --add-host host.docker.internal:host-gateway \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_WORKER_IMAGE }}:${{ env.DOCKER_TAG }}
+        
+    - name: Wait for worker to be ready
+      run: |
+        echo "Waiting for worker to start..."
+        sleep 10
+        
+    - name: Check worker status
+      run: |
+        echo "Worker status:"
+        docker ps -a | grep submission-worker
+        echo "Worker logs:"
+        docker logs submission-worker
+        
+    - name: Health check main service
+      run: |
+        echo "Performing health check on main service..."
+        for i in {1..30}; do
+          if curl -f http://localhost:3001/health > /dev/null 2>&1; then
+            echo "Main service health check passed!"
+            break
+          fi
+          echo "Attempt $i: Main service health check failed, retrying in 2 seconds..."
+          sleep 2
+        done
+        
+    - name: Check Redis connection
+      run: |
+        echo "Checking Redis connection..."
+        docker exec redis redis-cli ping
+        
+    - name: Clean up old images
+      run: |
+        echo "Cleaning up old Docker images..."
+        docker image prune -f
+        docker system prune -f 
