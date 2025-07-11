@@ -507,9 +507,6 @@ export async function runJavaAlternative(fullCode: string, input: string): Promi
     
     await new Promise(resolve => runStream.on('end', resolve));
     
-    await container.kill();
-    await cleanup();
-    
     return { 
       stdout: stdout.trim(), 
       stderr: stderr.trim() 
@@ -524,7 +521,11 @@ export async function runJavaAlternative(fullCode: string, input: string): Promi
   } finally {
     if (container) {
       try {
-        await container.kill();
+        // Check if container is still running before trying to kill it
+        const containerInfo = await container.inspect();
+        if (containerInfo.State.Running) {
+          await container.kill();
+        }
         await container.remove();
       } catch (e) {
         console.error('Failed to cleanup alternative container:', e);
@@ -544,13 +545,14 @@ export async function runJavaDirect(fullCode: string, input: string): Promise<{ 
   try {
     await docker.pull(JAVA_IMAGE);
     
-    // Escape the code properly for shell command
-    const escapedCode = codeToRun.replace(/'/g, "'\"'\"'").replace(/\n/g, '\\n');
-    const escapedInput = input.replace(/'/g, "'\"'\"'");
-    
-    container = await docker.createContainer({
+    // Use a simpler approach with printf to avoid shell escaping issues
+    const container = await docker.createContainer({
       Image: JAVA_IMAGE,
-      Cmd: ['sh', '-c', `echo '${escapedCode}' > Main.java && javac Main.java && echo '${escapedInput}' | java Main`],
+      Cmd: ['sh', '-c', `
+        printf '%s' '${codeToRun.replace(/'/g, "'\"'\"'")}' > Main.java
+        javac Main.java
+        echo '${input.replace(/'/g, "'\"'\"'")}' | java Main
+      `],
       HostConfig: { 
         AutoRemove: false,
         Memory: 512 * 1024 * 1024,
@@ -603,15 +605,23 @@ export async function runJavaDirect(fullCode: string, input: string): Promise<{ 
     
     await container.remove();
     
+    console.log('✅ [DIRECT] Java execution completed successfully');
+    console.log('📤 [DIRECT] stdout:', stdout);
+    console.log('📤 [DIRECT] stderr:', stderr);
+    
     return { stdout: stdout.trim(), stderr: stderr.trim() };
     
   } catch (err: any) {
-    console.error('Direct Java execution failed:', err);
+    console.error('❌ [DIRECT] Direct Java execution failed:', err);
     return { stdout: '', stderr: err.message || 'Direct execution failed' };
   } finally {
     if (container) {
       try {
-        await container.kill();
+        // Check if container is still running before trying to kill it
+        const containerInfo = await container.inspect();
+        if (containerInfo.State.Running) {
+          await container.kill();
+        }
         await container.remove();
       } catch (e) {
         console.error('Failed to cleanup direct container:', e);
