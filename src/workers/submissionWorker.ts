@@ -1,7 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import fetch from 'node-fetch';
+import axios from 'axios';
 
 import Submission from '../models/Submission';
 import { runJava } from '../executors/javaExecutor';
@@ -22,15 +22,15 @@ const redisOptions = {
 // Function to send WebSocket updates via HTTP
 async function sendWebSocketUpdate(userId: string, submissionId: string, data: any) {
   try {
-    const response = await fetch('http://localhost:5001/api/websocket/update', {
-      method: 'POST',
+    const response = await axios.post('http://localhost:5001/api/websocket/update', {
+      userId, submissionId, data
+    }, {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ userId, submissionId, data }),
     });
     
-    if (response.ok) {
+    if (response.status === 200) {
       console.log(`✅ WebSocket update sent for user ${userId}, submission ${submissionId}`);
     } else {
       console.error(`❌ Failed to send WebSocket update for user ${userId}:`, response.statusText);

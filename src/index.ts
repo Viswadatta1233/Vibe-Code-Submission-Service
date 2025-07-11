@@ -92,7 +92,7 @@ mongoose.connect(MONGO_URI)
       
       console.log('✅ WebSocket server is ready');
       console.log('✅ Health check available at: http://localhost:5001/health');
-      console.log('✅ WebSocket update endpoint: http://localhost:5001/api/websocket/update');
+console.log('✅ WebSocket update endpoint: http://localhost:5001/api/websocket/update');
     } catch (err) {
       console.error('❌ Failed to start server:', err);
       process.exit(1);

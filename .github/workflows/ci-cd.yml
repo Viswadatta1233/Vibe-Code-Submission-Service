@@ -107,7 +107,7 @@ jobs:
           --name submission-service \
           --restart unless-stopped \
           --env-file /var/www/submission-service/.env \
-          -p 3001:3001 \
+          -p 5001:5001 \
           --add-host host.docker.internal:host-gateway \
           -v /var/run/docker.sock:/var/run/docker.sock \
           ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}
@@ -150,7 +150,7 @@ jobs:
       run: |
         echo "Performing health check on main service..."
         for i in {1..30}; do
-          if curl -f http://localhost:3001/health > /dev/null 2>&1; then
+          if curl -f http://localhost:5001/health > /dev/null 2>&1; then
             echo "Main service health check passed!"
             break
           fi
