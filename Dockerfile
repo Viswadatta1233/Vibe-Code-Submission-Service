@@ -7,14 +7,14 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (including dev dependencies for build)
+RUN npm ci --include=dev
 
 # Copy source code
 COPY src/ ./src/
 
 # Build TypeScript
-RUN npm run build
+RUN npm run build || (echo "TypeScript compilation failed. Check the errors above." && exit 1)
 
 # Production stage for main service
 FROM node:18-alpine AS production
