@@ -306,18 +306,27 @@ export async function runJava(fullCode: string, input: string): Promise<{ stdout
     await writeFile(filePath, codeToRun);
     console.log('✅ Code written to file successfully');
     
+    // Verify file was written
+    const fs = require('fs');
+    const fileExists = fs.existsSync(filePath);
+    console.log('🔍 File exists check:', fileExists);
+    if (fileExists) {
+      const fileContent = fs.readFileSync(filePath, 'utf8');
+      console.log('📄 File content length:', fileContent.length);
+    }
+    
     // Pull the image before creating the container
     console.log('📦 Pulling Java image...');
     await docker.pull(JAVA_IMAGE);
     console.log('✅ Java image pulled successfully');
     
-    // Create container
+    // Create container with more explicit volume mounting
     console.log('🔨 Creating Java container...');
     const container = await docker.createContainer({
       Image: JAVA_IMAGE,
-      Cmd: ['sh', '-c', `javac Main.java && echo ${JSON.stringify(input)} | java Main`],
+      Cmd: ['sh', '-c', `cd /usr/src/app && ls -la && cat Main.java && javac Main.java && echo ${JSON.stringify(input)} | java Main`],
       HostConfig: { 
-        Binds: [`${path}:/usr/src/app`], 
+        Binds: [`${path}:/usr/src/app:ro`], 
         AutoRemove: false, // Don't auto-remove so we can get logs
         Memory: 512 * 1024 * 1024, // 512MB memory limit
         CpuPeriod: 100000,
@@ -388,6 +397,12 @@ export async function runJava(fullCode: string, input: string): Promise<{ stdout
     await container.remove();
     console.log('🗑️ Container removed');
     
+    // If the first approach failed, try alternative approach
+    if (stderr.includes('file not found') || stderr.includes('Main.java')) {
+      console.log('🔄 First approach failed, trying alternative method...');
+      return await runJavaAlternative(fullCode, input);
+    }
+    
     return { 
       stdout: stdout.trim(), 
       stderr: stderr.trim() 
@@ -423,6 +438,7 @@ export async function runJava(fullCode: string, input: string): Promise<{ stdout
 
 // Alternative approach using exec instead of logs
 export async function runJavaAlternative(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
+  console.log('🔄 Using alternative Java execution method...');
   const docker = new Docker();
   const { path, cleanup } = await dir({ unsafeCleanup: true });
   const codeToRun = buildJavaCode(fullCode);
@@ -437,8 +453,8 @@ export async function runJavaAlternative(fullCode: string, input: string): Promi
       Image: JAVA_IMAGE,
       Cmd: ['sleep', '30'], // Keep container alive
       HostConfig: { 
-        Binds: [`${path}:/usr/src/app`], 
-        AutoRemove: true 
+        Binds: [`${path}:/usr/src/app:ro`], 
+        AutoRemove: false 
       },
       WorkingDir: '/usr/src/app',
       Tty: false,
@@ -500,14 +516,106 @@ export async function runJavaAlternative(fullCode: string, input: string): Promi
     };
     
   } catch (err: any) {
+    console.error('Alternative Java execution failed:', err);
+    
+    // Try third approach - create file directly in container
+    console.log('🔄 Trying third approach - direct file creation...');
+    return await runJavaDirect(fullCode, input);
+  } finally {
     if (container) {
       try {
         await container.kill();
-      } catch (killErr) {
-        console.error('Failed to kill container:', killErr);
+        await container.remove();
+      } catch (e) {
+        console.error('Failed to cleanup alternative container:', e);
       }
     }
     await cleanup();
-    return { stdout: '', stderr: err.message };
+  }
+}
+
+// Third approach: Create file directly inside container
+export async function runJavaDirect(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
+  console.log('🔄 Using direct file creation method...');
+  const docker = new Docker();
+  const codeToRun = buildJavaCode(fullCode);
+  let container: any = null;
+  
+  try {
+    await docker.pull(JAVA_IMAGE);
+    
+    // Escape the code properly for shell command
+    const escapedCode = codeToRun.replace(/'/g, "'\"'\"'").replace(/\n/g, '\\n');
+    const escapedInput = input.replace(/'/g, "'\"'\"'");
+    
+    container = await docker.createContainer({
+      Image: JAVA_IMAGE,
+      Cmd: ['sh', '-c', `echo '${escapedCode}' > Main.java && javac Main.java && echo '${escapedInput}' | java Main`],
+      HostConfig: { 
+        AutoRemove: false,
+        Memory: 512 * 1024 * 1024,
+        CpuPeriod: 100000,
+        CpuQuota: 50000,
+        NetworkMode: 'none',
+      },
+      Tty: false,
+      OpenStdin: true,
+      StdinOnce: false,
+    });
+    
+    await container.start();
+    
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Container execution timeout (30s)')), 30000);
+    });
+    
+    const waitPromise = container.wait();
+    const result = await Promise.race([waitPromise, timeoutPromise]) as any;
+    
+    const logs = await container.logs({
+      stdout: true,
+      stderr: true,
+      tail: 1000
+    });
+    
+    const logBuffer = Buffer.from(logs);
+    let stdout = '', stderr = '';
+    let offset = 0;
+    
+    while (offset < logBuffer.length) {
+      if (offset + 8 > logBuffer.length) break;
+      
+      const streamType = logBuffer[offset];
+      const size = logBuffer.readUInt32BE(offset + 4);
+      
+      if (offset + 8 + size > logBuffer.length) break;
+      
+      const payload = logBuffer.slice(offset + 8, offset + 8 + size).toString();
+      
+      if (streamType === 1) {
+        stdout += payload;
+      } else if (streamType === 2) {
+        stderr += payload;
+      }
+      
+      offset += 8 + size;
+    }
+    
+    await container.remove();
+    
+    return { stdout: stdout.trim(), stderr: stderr.trim() };
+    
+  } catch (err: any) {
+    console.error('Direct Java execution failed:', err);
+    return { stdout: '', stderr: err.message || 'Direct execution failed' };
+  } finally {
+    if (container) {
+      try {
+        await container.kill();
+        await container.remove();
+      } catch (e) {
+        console.error('Failed to cleanup direct container:', e);
+      }
+    }
   }
 }
