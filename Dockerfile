@@ -22,10 +22,6 @@ FROM node:18-alpine AS production
 # Install Docker for code execution
 RUN apk add --no-cache docker-cli
 
-# Create app user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
-
 WORKDIR /app
 
 # Copy package files
@@ -39,12 +35,6 @@ COPY --from=builder /app/dist ./dist
 
 # Copy source for worker (needed for ts-node)
 COPY --from=builder /app/src ./src
-
-# Change ownership
-RUN chown -R nodejs:nodejs /app
-
-# Switch to nodejs user
-USER nodejs
 
 # Expose port
 EXPOSE 5001
