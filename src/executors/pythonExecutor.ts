@@ -6,6 +6,37 @@ export const PYTHON_IMAGE = 'python:3.8-slim';
 export const JAVA_IMAGE = 'openjdk:17-slim';
 export const CPP_IMAGE = 'gcc:latest';
 
+// Function to properly demultiplex Docker logs
+function demultiplexDockerLogs(buffer: Buffer): { stdout: string, stderr: string } {
+  let stdout = '';
+  let stderr = '';
+  let offset = 0;
+  
+  while (offset < buffer.length) {
+    if (offset + 8 > buffer.length) break;
+    
+    // Read the header
+    const streamType = buffer[offset];
+    const size = buffer.readUInt32BE(offset + 4);
+    
+    if (offset + 8 + size > buffer.length) break;
+    
+    // Extract the payload
+    const payload = buffer.slice(offset + 8, offset + 8 + size).toString();
+    
+    // Stream type: 1 = stdout, 2 = stderr
+    if (streamType === 1) {
+      stdout += payload;
+    } else if (streamType === 2) {
+      stderr += payload;
+    }
+    
+    offset += 8 + size;
+  }
+  
+  return { stdout: stdout.trim(), stderr: stderr.trim() };
+}
+
 // Python code template for user submissions
 function buildPythonCode(fullCode: string): string {
   console.log('🔧 Building Python code with input:', fullCode);
@@ -168,125 +199,63 @@ else:
 }
 
 export async function runPython(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
+  console.log('🚀 Starting Python execution...');
+  console.log('📥 Input code:', fullCode);
+  console.log('📥 Input data:', input);
+  
+  // Use the direct method as primary approach since volume mounting is unreliable
+  console.log('🔄 Using direct file creation method as primary approach...');
+  return await runPythonDirect(fullCode, input);
+}
+
+// Alternative approach using exec instead of logs
+export async function runPythonAlternative(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
+  console.log('🔄 Using alternative Python execution method...');
   const docker = new Docker();
   const { path, cleanup } = await dir({ unsafeCleanup: true });
   const codeToRun = buildPythonCode(fullCode);
   const filePath = `${path}/main.py`;
+  await writeFile(filePath, codeToRun);
+  let container: any = null;
   
   try {
-    // Write the code to file
-    await writeFile(filePath, codeToRun);
-    
-    console.log('🔍 Python Executor Debug:');
-    console.log('📥 Input fullCode:', fullCode);
-    console.log('📄 Generated Python code:');
-    console.log('='.repeat(50));
-    console.log(codeToRun);
-    console.log('='.repeat(50));
-    console.log('📥 Test input:', input);
-    console.log('📁 File written to:', filePath);
-    
-    // Also read back the file to verify it was written correctly
-    const fs = require('fs');
-    const writtenCode = fs.readFileSync(filePath, 'utf8');
-    console.log('📖 File content verification:');
-    console.log('📖 Written code length:', writtenCode.length);
-    console.log('📖 Written code first 100 chars:', writtenCode.substring(0, 100));
-    console.log('📖 Full written code:');
-    console.log('='.repeat(50));
-    console.log(writtenCode);
-    console.log('='.repeat(50));
-    
-    // Pull the image before creating the container
-    console.log('📦 Pulling Python image...');
     await docker.pull(PYTHON_IMAGE);
-    console.log('✅ Python image pulled successfully');
     
-    // Create container
-    console.log('🔨 Creating Python container...');
-    const container = await docker.createContainer({
+    container = await docker.createContainer({
       Image: PYTHON_IMAGE,
-      Cmd: ['sh', '-c', `echo ${JSON.stringify(input)} | python main.py`],
+      Cmd: ['sleep', '30'], // Keep container alive
       HostConfig: { 
-        Binds: [`${path}:/usr/src/app`], 
-        AutoRemove: false, // Don't auto-remove so we can get logs
-        Memory: 512 * 1024 * 1024, // 512MB memory limit
-        CpuPeriod: 100000,
-        CpuQuota: 50000, // 50% CPU limit
-        NetworkMode: 'none', // Disable network for security
+        Binds: [`${path}:/usr/src/app:ro`], 
+        AutoRemove: false 
       },
       WorkingDir: '/usr/src/app',
       Tty: false,
-      OpenStdin: true,
-      StdinOnce: false,
+      OpenStdin: false
     });
     
-    console.log('✅ Container created:', container.id);
-    
-    // Start the container
     await container.start();
-    console.log('🚀 Container started');
     
-    // Wait for container to finish with timeout
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Container execution timeout (30s)')), 30000);
+    // Execute the program
+    const runExec = await container.exec({
+      Cmd: ['sh', '-c', `echo "${input}" | python main.py`],
+      AttachStdout: true,
+      AttachStderr: true
     });
     
-    const waitPromise = container.wait();
-    const result = await Promise.race([waitPromise, timeoutPromise]) as any;
-    console.log('⏹️ Container finished with exit code:', result.StatusCode);
+    const runStream = await runExec.start({ Detach: false });
+    let stdout = '';
+    let stderr = '';
     
-    // Get container logs
-    const logs = await container.logs({
-      stdout: true,
-      stderr: true,
-      tail: 1000
-    });
-    
-    console.log('🔍 Raw Docker logs debug:');
-    console.log('📊 Logs buffer length:', logs.length);
-    console.log('📊 Logs buffer:', logs);
-    console.log('📊 Logs as string:', logs.toString());
-    console.log('📊 Logs as hex:', logs.toString('hex'));
-    
-    // Parse logs using the same approach as Java and C++ executors
-    let stdout = '', stderr = '';
-    const logBuffer = Buffer.from(logs);
-    
-    // Docker logs come with 8-byte headers for stream multiplexing
-    // Format: [stream_type][size][payload]
-    let offset = 0;
-    while (offset < logBuffer.length) {
-      if (offset + 8 > logBuffer.length) break;
-      
-      // Read the header
-      const streamType = logBuffer[offset];
-      const size = logBuffer.readUInt32BE(offset + 4);
-      
-      if (offset + 8 + size > logBuffer.length) break;
-      
-      // Extract the payload
-      const payload = logBuffer.slice(offset + 8, offset + 8 + size).toString();
-      
-      console.log('🔍 Stream type:', streamType, 'Size:', size, 'Payload:', payload);
-      
-      // Stream type: 1 = stdout, 2 = stderr
-      if (streamType === 1) {
-        stdout += payload;
-      } else if (streamType === 2) {
-        stderr += payload;
+    runStream.on('data', (chunk: Buffer) => {
+      const output = chunk.toString();
+      if (output.includes('Exception') || output.includes('Error')) {
+        stderr += output;
+      } else {
+        stdout += output;
       }
-      
-      offset += 8 + size;
-    }
+    });
     
-    console.log('✅ Container logs parsing successful');
-    console.log('📤 Parsed stdout:', stdout);
-    console.log('📤 Parsed stderr:', stderr);
-    
-    // Remove container
-    await container.remove();
-    console.log('🗑️ Container removed');
+    await new Promise(resolve => runStream.on('end', resolve));
     
     return { 
       stdout: stdout.trim(), 
@@ -294,29 +263,100 @@ export async function runPython(fullCode: string, input: string): Promise<{ stdo
     };
     
   } catch (err: any) {
-    console.error('❌ Error in Python execution:', err);
+    console.error('Alternative Python execution failed:', err);
     
-    // If it's a timeout error, try to kill the container
-    if (err.message.includes('timeout')) {
+    // Try third approach - create file directly in container
+    console.log('🔄 Trying third approach - direct file creation...');
+    return await runPythonDirect(fullCode, input);
+  } finally {
+    if (container) {
       try {
-        const containers = await docker.listContainers({ all: true });
-        const runningContainer = containers.find((c: any) => c.Image.includes('python'));
-        if (runningContainer) {
-          const container = docker.getContainer(runningContainer.Id);
+        // Check if container is still running before trying to kill it
+        const containerInfo = await container.inspect();
+        if (containerInfo.State.Running) {
           await container.kill();
-          await container.remove();
-          console.log('🛑 Killed and removed timeout container');
         }
-      } catch (killErr) {
-        console.error('Failed to kill timeout container:', killErr);
+        await container.remove();
+      } catch (e) {
+        console.error('Failed to cleanup alternative container:', e);
       }
     }
-    
-    return { 
-      stdout: '', 
-      stderr: err.message || 'Unknown error occurred' 
-    };
-  } finally {
     await cleanup();
+  }
+}
+
+// Third approach: Create file directly inside container
+export async function runPythonDirect(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
+  console.log('🔄 Using direct file creation method...');
+  const docker = new Docker();
+  const codeToRun = buildPythonCode(fullCode);
+  let container: any = null;
+  
+  try {
+    await docker.pull(PYTHON_IMAGE);
+    
+    // Use a safer approach with base64 encoding to avoid shell escaping issues
+    const codeToRunBase64 = Buffer.from(codeToRun).toString('base64');
+    const inputBase64 = Buffer.from(input).toString('base64');
+    
+    const container = await docker.createContainer({
+      Image: PYTHON_IMAGE,
+      Cmd: ['sh', '-c', `
+        echo '${codeToRunBase64}' | base64 -d > main.py
+        echo '${inputBase64}' | base64 -d | python main.py
+      `],
+      HostConfig: { 
+        AutoRemove: false,
+        Memory: 512 * 1024 * 1024,
+        CpuPeriod: 100000,
+        CpuQuota: 50000,
+        NetworkMode: 'none',
+      },
+      Tty: false,
+      OpenStdin: true,
+      StdinOnce: false,
+    });
+    
+    await container.start();
+    
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Container execution timeout (30s)')), 30000);
+    });
+    
+    const waitPromise = container.wait();
+    const result = await Promise.race([waitPromise, timeoutPromise]) as any;
+    
+    const logs = await container.logs({
+      stdout: true,
+      stderr: true,
+      tail: 1000
+    });
+    
+    const { stdout, stderr } = demultiplexDockerLogs(Buffer.from(logs));
+    
+    await container.remove();
+    
+    console.log('✅ [DIRECT] Python execution completed successfully');
+    console.log('📤 [DIRECT] stdout:', stdout);
+    console.log('📤 [DIRECT] stderr:', stderr);
+    
+    return { stdout, stderr };
+    
+  } catch (err: any) {
+    console.error('❌ [DIRECT] Direct Python execution failed:', err);
+    return { stdout: '', stderr: err.message || 'Direct execution failed' };
+  } finally {
+    if (container) {
+      try {
+        // Check if container is still running before trying to kill it
+        const containerInfo = await container.inspect();
+        if (containerInfo.State.Running) {
+          await container.kill();
+        }
+        await container.remove();
+      } catch (e) {
+        console.error('Failed to cleanup direct container:', e);
+      }
+    }
   }
 }
