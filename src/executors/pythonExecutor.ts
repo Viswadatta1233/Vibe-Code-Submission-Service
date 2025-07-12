@@ -293,14 +293,35 @@ export async function runPythonDirect(fullCode: string, input: string): Promise<
   let container: any = null;
   
   try {
-    await docker.pull(PYTHON_IMAGE);
+    // Try multiple Python image versions as fallbacks
+    const pythonImages = ['python:3.8-slim', 'python:3.9-slim', 'python:3.7-slim', 'python:3.10-slim'];
+    let imagePulled = false;
+    let selectedImage = '';
+    
+    for (const image of pythonImages) {
+      try {
+        console.log(`🔄 Trying to pull ${image}...`);
+        await docker.pull(image);
+        console.log(`✅ ${image} pulled successfully`);
+        imagePulled = true;
+        selectedImage = image;
+        break;
+      } catch (pullErr) {
+        console.log(`❌ Failed to pull ${image}:`, pullErr);
+        continue;
+      }
+    }
+    
+    if (!imagePulled) {
+      throw new Error('Failed to pull any Python image. Please check Docker connectivity.');
+    }
     
     // Use a safer approach with base64 encoding to avoid shell escaping issues
     const codeToRunBase64 = Buffer.from(codeToRun).toString('base64');
     const inputBase64 = Buffer.from(input).toString('base64');
     
     const container = await docker.createContainer({
-      Image: PYTHON_IMAGE,
+      Image: selectedImage,
       Cmd: ['sh', '-c', `
         echo '${codeToRunBase64}' | base64 -d > main.py
         echo '${inputBase64}' | base64 -d | python main.py

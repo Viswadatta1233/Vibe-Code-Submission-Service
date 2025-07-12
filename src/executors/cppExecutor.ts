@@ -438,14 +438,35 @@ export async function runCppDirect(fullCode: string, input: string): Promise<{ s
   let container: any = null;
   
   try {
-    await docker.pull(CPP_IMAGE);
+    // Try multiple GCC image versions as fallbacks
+    const gccImages = ['gcc:latest', 'gcc:11', 'gcc:10', 'gcc:9'];
+    let imagePulled = false;
+    let selectedImage = '';
+    
+    for (const image of gccImages) {
+      try {
+        console.log(`🔄 Trying to pull ${image}...`);
+        await docker.pull(image);
+        console.log(`✅ ${image} pulled successfully`);
+        imagePulled = true;
+        selectedImage = image;
+        break;
+      } catch (pullErr) {
+        console.log(`❌ Failed to pull ${image}:`, pullErr);
+        continue;
+      }
+    }
+    
+    if (!imagePulled) {
+      throw new Error('Failed to pull any GCC image. Please check Docker connectivity.');
+    }
     
     // Use a safer approach with base64 encoding to avoid shell escaping issues
     const codeToRunBase64 = Buffer.from(codeToRun).toString('base64');
     const inputBase64 = Buffer.from(input).toString('base64');
     
     const container = await docker.createContainer({
-      Image: CPP_IMAGE,
+      Image: selectedImage,
       Cmd: ['sh', '-c', `
         echo '${codeToRunBase64}' | base64 -d > main.cpp
         g++ main.cpp -o main
