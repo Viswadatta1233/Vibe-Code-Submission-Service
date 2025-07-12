@@ -438,11 +438,11 @@ export async function runCppDirect(fullCode: string, input: string): Promise<{ s
   let container: any = null;
   
   try {
-    // Try multiple base images and install GCC in them
+    // Try to use a base image that might have GCC pre-installed
     const baseImages = [
-      { name: 'openjdk:17-jdk-slim', installCmd: 'apt-get update && apt-get install -y g++' },
-      { name: 'ubuntu:20.04', installCmd: 'apt-get update && apt-get install -y g++' },
-      { name: 'debian:buster-slim', installCmd: 'apt-get update && apt-get install -y g++' }
+      { name: 'openjdk:17-jdk-slim', installCmd: 'which g++ || (apt-get update && apt-get install -y g++)' },
+      { name: 'ubuntu:20.04', installCmd: 'which g++ || (apt-get update && apt-get install -y g++)' },
+      { name: 'debian:buster-slim', installCmd: 'which g++ || (apt-get update && apt-get install -y g++)' }
     ];
     let imagePulled = false;
     let selectedImage = '';
@@ -497,7 +497,8 @@ export async function runCppDirect(fullCode: string, input: string): Promise<{ s
         Memory: 512 * 1024 * 1024,
         CpuPeriod: 100000,
         CpuQuota: 50000,
-        NetworkMode: 'none',
+        // Enable network for package installation, but restrict it
+        NetworkMode: 'bridge',
       },
       Tty: false,
       OpenStdin: true,
