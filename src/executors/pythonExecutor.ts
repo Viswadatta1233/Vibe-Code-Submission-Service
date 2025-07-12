@@ -303,9 +303,19 @@ export async function runPythonDirect(fullCode: string, input: string): Promise<
         console.log(`🔄 Trying to pull ${image}...`);
         await docker.pull(image);
         console.log(`✅ ${image} pulled successfully`);
-        imagePulled = true;
-        selectedImage = image;
-        break;
+        
+        // Verify the image is actually available
+        try {
+          const imageObj = docker.getImage(image);
+          await imageObj.inspect();
+          console.log(`✅ ${image} verified and available`);
+          imagePulled = true;
+          selectedImage = image;
+          break;
+        } catch (verifyErr) {
+          console.log(`❌ ${image} pulled but not available:`, verifyErr);
+          continue;
+        }
       } catch (pullErr) {
         console.log(`❌ Failed to pull ${image}:`, pullErr);
         continue;
@@ -313,8 +323,10 @@ export async function runPythonDirect(fullCode: string, input: string): Promise<
     }
     
     if (!imagePulled) {
-      throw new Error('Failed to pull any Python image. Please check Docker connectivity.');
+      throw new Error('Failed to pull and verify any Python image. Please check Docker connectivity.');
     }
+    
+    console.log(`🚀 Using image: ${selectedImage}`);
     
     // Use a safer approach with base64 encoding to avoid shell escaping issues
     const codeToRunBase64 = Buffer.from(codeToRun).toString('base64');
