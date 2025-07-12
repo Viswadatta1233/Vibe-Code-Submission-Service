@@ -438,40 +438,47 @@ export async function runCppDirect(fullCode: string, input: string): Promise<{ s
   let container: any = null;
   
   try {
-    // Try multiple GCC image versions as fallbacks
-    const gccImages = ['gcc:latest', 'gcc:11', 'gcc:10', 'gcc:9'];
+    // Try multiple base images and install GCC in them
+    const baseImages = [
+      { name: 'openjdk:17-jdk-slim', installCmd: 'apt-get update && apt-get install -y g++' },
+      { name: 'ubuntu:20.04', installCmd: 'apt-get update && apt-get install -y g++' },
+      { name: 'debian:buster-slim', installCmd: 'apt-get update && apt-get install -y g++' }
+    ];
     let imagePulled = false;
     let selectedImage = '';
+    let installCommand = '';
     
-    for (const image of gccImages) {
+    for (const imageConfig of baseImages) {
       try {
-        console.log(`🔄 Trying to pull ${image}...`);
-        await docker.pull(image);
-        console.log(`✅ ${image} pulled successfully`);
+        console.log(`🔄 Trying to pull ${imageConfig.name}...`);
+        await docker.pull(imageConfig.name);
+        console.log(`✅ ${imageConfig.name} pulled successfully`);
         
         // Verify the image is actually available
         try {
-          const imageObj = docker.getImage(image);
+          const imageObj = docker.getImage(imageConfig.name);
           await imageObj.inspect();
-          console.log(`✅ ${image} verified and available`);
+          console.log(`✅ ${imageConfig.name} verified and available`);
           imagePulled = true;
-          selectedImage = image;
+          selectedImage = imageConfig.name;
+          installCommand = imageConfig.installCmd;
           break;
         } catch (verifyErr) {
-          console.log(`❌ ${image} pulled but not available:`, verifyErr);
+          console.log(`❌ ${imageConfig.name} pulled but not available:`, verifyErr);
           continue;
         }
       } catch (pullErr) {
-        console.log(`❌ Failed to pull ${image}:`, pullErr);
+        console.log(`❌ Failed to pull ${imageConfig.name}:`, pullErr);
         continue;
       }
     }
     
     if (!imagePulled) {
-      throw new Error('Failed to pull and verify any GCC image. Please check Docker connectivity.');
+      throw new Error('Failed to pull and verify any base image. Please check Docker connectivity.');
     }
     
     console.log(`🚀 Using image: ${selectedImage}`);
+    console.log(`🔧 Install command: ${installCommand}`);
     
     // Use a safer approach with base64 encoding to avoid shell escaping issues
     const codeToRunBase64 = Buffer.from(codeToRun).toString('base64');
@@ -480,6 +487,7 @@ export async function runCppDirect(fullCode: string, input: string): Promise<{ s
     const container = await docker.createContainer({
       Image: selectedImage,
       Cmd: ['sh', '-c', `
+        ${installCommand}
         echo '${codeToRunBase64}' | base64 -d > main.cpp
         g++ main.cpp -o main
         echo '${inputBase64}' | base64 -d | ./main
