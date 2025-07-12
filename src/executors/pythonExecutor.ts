@@ -293,39 +293,8 @@ export async function runPythonDirect(fullCode: string, input: string): Promise<
   let container: any = null;
   
   try {
-    // Try multiple Python image versions as fallbacks
-    const pythonImages = ['python:3.8-slim', 'python:3.9-slim', 'python:3.7-slim', 'python:3.10-slim'];
-    let imagePulled = false;
-    let selectedImage = '';
-    
-    for (const image of pythonImages) {
-      try {
-        console.log(`🔄 Trying to pull ${image}...`);
-        await docker.pull(image);
-        console.log(`✅ ${image} pulled successfully`);
-        
-        // Verify the image is actually available
-        try {
-          const imageObj = docker.getImage(image);
-          await imageObj.inspect();
-          console.log(`✅ ${image} verified and available`);
-          imagePulled = true;
-          selectedImage = image;
-          break;
-        } catch (verifyErr) {
-          console.log(`❌ ${image} pulled but not available:`, verifyErr);
-          continue;
-        }
-      } catch (pullErr) {
-        console.log(`❌ Failed to pull ${image}:`, pullErr);
-        continue;
-      }
-    }
-    
-    if (!imagePulled) {
-      throw new Error('Failed to pull and verify any Python image. Please check Docker connectivity.');
-    }
-    
+    // Use python:3.8-slim directly since it should be available
+    const selectedImage = 'python:3.8-slim';
     console.log(`🚀 Using image: ${selectedImage}`);
     
     // Use a safer approach with base64 encoding to avoid shell escaping issues
@@ -343,7 +312,7 @@ export async function runPythonDirect(fullCode: string, input: string): Promise<
         Memory: 512 * 1024 * 1024,
         CpuPeriod: 100000,
         CpuQuota: 50000,
-        NetworkMode: 'none',
+        NetworkMode: 'none', // No network needed since Python is pre-installed
       },
       Tty: false,
       OpenStdin: true,
