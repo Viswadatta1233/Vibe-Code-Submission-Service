@@ -18,7 +18,7 @@ console.log('🔧 [WORKER] REDIS_PORT:', process.env.REDIS_PORT || 6379);
 
 mongoose.connect(process.env.MONGO_URI || '', {})
   .then(() => console.log('✅ [WORKER] Connected to MongoDB'))
-  .catch(err => console.error('❌ cj[WORKER] MongoDB connection error:', err));
+  .catch(err => console.error('❌ cj[WORKER] MongoDB connection errors:', err));
 
 const redisOptions = {
   host: process.env.REDIS_HOST || 'host.docker.internal',
