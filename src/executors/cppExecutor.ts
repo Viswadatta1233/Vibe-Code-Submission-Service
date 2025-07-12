@@ -438,47 +438,9 @@ export async function runCppDirect(fullCode: string, input: string): Promise<{ s
   let container: any = null;
   
   try {
-    // Try to use a base image that might have GCC pre-installed
-    const baseImages = [
-      { name: 'openjdk:17-jdk-slim', installCmd: 'which g++ || (apt-get update && apt-get install -y g++)' },
-      { name: 'ubuntu:20.04', installCmd: 'which g++ || (apt-get update && apt-get install -y g++)' },
-      { name: 'debian:buster-slim', installCmd: 'which g++ || (apt-get update && apt-get install -y g++)' }
-    ];
-    let imagePulled = false;
-    let selectedImage = '';
-    let installCommand = '';
-    
-    for (const imageConfig of baseImages) {
-      try {
-        console.log(`🔄 Trying to pull ${imageConfig.name}...`);
-        await docker.pull(imageConfig.name);
-        console.log(`✅ ${imageConfig.name} pulled successfully`);
-        
-        // Verify the image is actually available
-        try {
-          const imageObj = docker.getImage(imageConfig.name);
-          await imageObj.inspect();
-          console.log(`✅ ${imageConfig.name} verified and available`);
-          imagePulled = true;
-          selectedImage = imageConfig.name;
-          installCommand = imageConfig.installCmd;
-          break;
-        } catch (verifyErr) {
-          console.log(`❌ ${imageConfig.name} pulled but not available:`, verifyErr);
-          continue;
-        }
-      } catch (pullErr) {
-        console.log(`❌ Failed to pull ${imageConfig.name}:`, pullErr);
-        continue;
-      }
-    }
-    
-    if (!imagePulled) {
-      throw new Error('Failed to pull and verify any base image. Please check Docker connectivity.');
-    }
-    
+    // Use gcc:latest directly since it's available and has GCC pre-installed
+    const selectedImage = 'gcc:latest';
     console.log(`🚀 Using image: ${selectedImage}`);
-    console.log(`🔧 Install command: ${installCommand}`);
     
     // Use a safer approach with base64 encoding to avoid shell escaping issues
     const codeToRunBase64 = Buffer.from(codeToRun).toString('base64');
@@ -487,7 +449,6 @@ export async function runCppDirect(fullCode: string, input: string): Promise<{ s
     const container = await docker.createContainer({
       Image: selectedImage,
       Cmd: ['sh', '-c', `
-        ${installCommand}
         echo '${codeToRunBase64}' | base64 -d > main.cpp
         g++ main.cpp -o main
         echo '${inputBase64}' | base64 -d | ./main
@@ -497,8 +458,7 @@ export async function runCppDirect(fullCode: string, input: string): Promise<{ s
         Memory: 512 * 1024 * 1024,
         CpuPeriod: 100000,
         CpuQuota: 50000,
-        // Enable network for package installation, but restrict it
-        NetworkMode: 'bridge',
+        NetworkMode: 'none', // No network needed since GCC is pre-installed
       },
       Tty: false,
       OpenStdin: true,
