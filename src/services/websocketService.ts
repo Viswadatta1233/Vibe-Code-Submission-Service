@@ -17,7 +17,7 @@ class WebSocketService {
     // Attach Socket.IO to the Fastify server
     this.io = new IOServer(fastify.server, {
       cors: { 
-        origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173', 'https://vibecode-ui-8z5x.vercel.app'],
+        origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173', 'https://vibecode-ui-8z5x.vercel.app', 'https://vibecode-ui-dz9c.vercel.app'],
         credentials: true
       },
     });
