@@ -22,7 +22,7 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/leetcode-c
 
 // Register CORS with WebSocket support
 app.register(cors, {
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173'],
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173', 'https://vibecode-ui-8z5x.vercel.app'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'user-id'],

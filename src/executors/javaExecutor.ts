@@ -386,7 +386,7 @@ export async function runJavaAlternative(fullCode: string, input: string): Promi
         // Check if container is still running before trying to kill it
         const containerInfo = await container.inspect();
         if (containerInfo.State.Running) {
-          await container.kill();
+        await container.kill();
         }
         await container.remove();
       } catch (e) {

@@ -338,7 +338,7 @@ export async function runCppAlternative(fullCode: string, input: string): Promis
   const { path, cleanup } = await dir({ unsafeCleanup: true });
   const codeToRun = buildCppCode(fullCode);
   const filePath = `${path}/main.cpp`;
-  await writeFile(filePath, codeToRun);
+    await writeFile(filePath, codeToRun);
   let container: any = null;
   
   try {
@@ -446,43 +446,43 @@ export async function runCppDirect(fullCode: string, input: string): Promise<{ s
     const codeToRunBase64 = Buffer.from(codeToRun).toString('base64');
     const inputBase64 = Buffer.from(input).toString('base64');
     
-    const container = await docker.createContainer({
+        const container = await docker.createContainer({
       Image: selectedImage,
       Cmd: ['sh', '-c', `
         echo '${codeToRunBase64}' | base64 -d > main.cpp
         g++ main.cpp -o main
         echo '${inputBase64}' | base64 -d | ./main
       `],
-      HostConfig: { 
+          HostConfig: { 
         AutoRemove: false,
         Memory: 512 * 1024 * 1024,
-        CpuPeriod: 100000,
+            CpuPeriod: 100000,
         CpuQuota: 50000,
         NetworkMode: 'none', // No network needed since GCC is pre-installed
-      },
-      Tty: false,
-      OpenStdin: true,
-      StdinOnce: false,
-    });
-    
-    await container.start();
-    
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Container execution timeout (30s)')), 30000);
-    });
-    
-    const waitPromise = container.wait();
-    const result = await Promise.race([waitPromise, timeoutPromise]) as any;
-    
-    const logs = await container.logs({
-      stdout: true,
-      stderr: true,
-      tail: 1000
-    });
-    
+          },
+          Tty: false,
+          OpenStdin: true,
+          StdinOnce: false,
+        });
+        
+        await container.start();
+        
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Container execution timeout (30s)')), 30000);
+        });
+        
+        const waitPromise = container.wait();
+        const result = await Promise.race([waitPromise, timeoutPromise]) as any;
+        
+        const logs = await container.logs({
+          stdout: true,
+          stderr: true,
+          tail: 1000
+        });
+        
     const { stdout, stderr } = demultiplexDockerLogs(Buffer.from(logs));
     
-    await container.remove();
+        await container.remove();
     
     console.log('✅ [DIRECT] C++ execution completed successfully');
     console.log('📤 [DIRECT] stdout:', stdout);
@@ -501,7 +501,7 @@ export async function runCppDirect(fullCode: string, input: string): Promise<{ s
         if (containerInfo.State.Running) {
           await container.kill();
         }
-        await container.remove();
+          await container.remove();
       } catch (e) {
         console.error('Failed to cleanup direct container:', e);
       }

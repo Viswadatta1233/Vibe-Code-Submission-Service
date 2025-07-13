@@ -215,7 +215,7 @@ export async function runPythonAlternative(fullCode: string, input: string): Pro
   const { path, cleanup } = await dir({ unsafeCleanup: true });
   const codeToRun = buildPythonCode(fullCode);
   const filePath = `${path}/main.py`;
-  await writeFile(filePath, codeToRun);
+    await writeFile(filePath, codeToRun);
   let container: any = null;
   
   try {
@@ -355,7 +355,7 @@ export async function runPythonDirect(fullCode: string, input: string): Promise<
         if (containerInfo.State.Running) {
           await container.kill();
         }
-        await container.remove();
+          await container.remove();
       } catch (e) {
         console.error('Failed to cleanup direct container:', e);
       }
