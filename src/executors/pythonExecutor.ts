@@ -46,7 +46,8 @@ function buildPythonCode(fullCode: string): string {
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
   // If the code already contains input/output handling, return as is
-  if (cleanUserCode.includes('input()') || cleanUserCode.includes('print(') || cleanUserCode.includes('if __name__') || cleanUserCode.includes('sys.argv')) {
+  if ((cleanUserCode.includes('input()') || cleanUserCode.includes('print(') || cleanUserCode.includes('if __name__') || cleanUserCode.includes('sys.argv')) &&
+      !cleanUserCode.includes('def ') && !cleanUserCode.includes('class Solution:')) {
     console.log('📝 Code already contains input/output handling, returning as is...');
     
     // Fix common formatting issues in complete programs
@@ -54,8 +55,8 @@ function buildPythonCode(fullCode: string): string {
     
     // Fix: Detect and replace hardcoded test cases
     // This handles cases where the user has hardcoded values like: sol.twoSum([2, 7, 11, 15], 9)
-    if (fixedCode.includes('[2, 7, 11, 15]') || fixedCode.includes('[3,2,4]') || fixedCode.includes('[3,3]') ||
-        /\[[\d,\s]+\]/.test(fixedCode) && fixedCode.includes('sol.') && (fixedCode.includes('print(') || fixedCode.includes('result ='))) {
+    if ((fixedCode.includes('[2, 7, 11, 15]') || fixedCode.includes('[3,2,4]') || fixedCode.includes('[3,3]')) &&
+        fixedCode.includes('sol.') && fixedCode.includes('print(') && !fixedCode.includes('def ')) {
       console.log('🔧 Detected hardcoded test cases in Python, replacing with input parsing...');
       
       // Extract method name from the Solution class

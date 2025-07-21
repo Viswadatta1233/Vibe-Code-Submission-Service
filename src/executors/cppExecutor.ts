@@ -85,7 +85,8 @@ function buildCppCode(fullCode: string): string {
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
   // If the code already contains main function or input/output handling, return as is
-  if (cleanUserCode.includes('int main(') || cleanUserCode.includes('cin >>') || cleanUserCode.includes('cout <<') || cleanUserCode.includes('main()')) {
+  if ((cleanUserCode.includes('int main(') || cleanUserCode.includes('cin >>') || cleanUserCode.includes('cout <<') || cleanUserCode.includes('main()')) &&
+      !cleanUserCode.includes('class Solution')) {
     console.log('📝 Code already contains main function or I/O handling, returning as is...');
     
     // Fix common compilation issues in complete programs

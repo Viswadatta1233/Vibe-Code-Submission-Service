@@ -82,7 +82,7 @@ function buildJavaCode(fullCode: string): string {
   testRegexPatterns();
   
   // If the code already contains 'public class Main', just return as is
-  if (/public\s+class\s+Main/.test(fullCode)) {
+  if (/public\s+class\s+Main/.test(fullCode) && !fullCode.includes('class Solution')) {
     console.log('📝 Code already contains Main class, returning as is...');
     
     // Fix common formatting issues in complete programs
