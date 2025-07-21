@@ -84,7 +84,27 @@ function buildJavaCode(fullCode: string): string {
   // If the code already contains 'public class Main', just return as is
   if (/public\s+class\s+Main/.test(fullCode)) {
     console.log('📝 Code already contains Main class, returning as is...');
-    return fullCode;
+    
+    // Fix common formatting issues in complete programs
+    let fixedCode = fullCode;
+    
+    // If the code has System.out.println statements, ensure they format arrays correctly
+    if (fixedCode.includes('System.out.println(')) {
+      // Replace println statements that might output arrays with formatted versions
+      fixedCode = fixedCode.replace(
+        /System\.out\.println\s*\(\s*([^)]+)\s*\)/g,
+        (match, content) => {
+          // If the content looks like it might be an array, format it
+          if (content.includes('Arrays.toString') || content.includes('result') || content.includes('ans')) {
+            return `System.out.println(${content}.replaceAll(", ", ","))`;
+          }
+          return match;
+        }
+      );
+    }
+    
+    console.log('🔧 Fixed formatting issues in complete program');
+    return fixedCode;
   }
 
   // If the code contains 'class Solution', it's a user method that needs wrapping

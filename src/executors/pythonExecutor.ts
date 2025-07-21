@@ -46,9 +46,29 @@ function buildPythonCode(fullCode: string): string {
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
   // If the code already contains input/output handling, return as is
-  if (cleanUserCode.includes('input()') || cleanUserCode.includes('print(')) {
+  if (cleanUserCode.includes('input()') || cleanUserCode.includes('print(') || cleanUserCode.includes('if __name__') || cleanUserCode.includes('sys.argv')) {
     console.log('📝 Code already contains input/output handling, returning as is...');
-    return cleanUserCode;
+    
+    // Fix common formatting issues in complete programs
+    let fixedCode = cleanUserCode;
+    
+    // If the code has print statements, ensure they format lists correctly
+    if (fixedCode.includes('print(')) {
+      // Replace print statements that might output lists with formatted versions
+      fixedCode = fixedCode.replace(
+        /print\s*\(\s*([^)]+)\s*\)/g,
+        (match, content) => {
+          // If the content looks like it might be a list, format it
+          if (content.includes('[') || content.includes('result') || content.includes('ans')) {
+            return `print(str(${content}).replace(', ', ',').replace(' ,', ',').replace('[ ', '[').replace(' ]', ']'))`;
+          }
+          return match;
+        }
+      );
+    }
+    
+    console.log('🔧 Fixed formatting issues in complete program');
+    return fixedCode;
   }
   
   // Extract method name from user's code
@@ -193,8 +213,11 @@ sol = Solution()
 result = ${methodCall}
 # Format output to match expected format (no spaces in lists, lowercase booleans)
 if isinstance(result, list):
-    # Remove all spaces from list representation
-    print(str(result).replace(' ', ''))
+    # Remove all spaces from list representation - more aggressive approach
+    output_str = str(result)
+    # Remove spaces after commas and before closing brackets
+    output_str = output_str.replace(', ', ',').replace(' ,', ',').replace('[ ', '[').replace(' ]', ']')
+    print(output_str)
 elif isinstance(result, bool):
     print(str(result).lower())
 elif isinstance(result, str):

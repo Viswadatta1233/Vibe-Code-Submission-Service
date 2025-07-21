@@ -85,9 +85,42 @@ function buildCppCode(fullCode: string): string {
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
   // If the code already contains main function or input/output handling, return as is
-  if (cleanUserCode.includes('int main(') || cleanUserCode.includes('cin >>') || cleanUserCode.includes('cout <<')) {
+  if (cleanUserCode.includes('int main(') || cleanUserCode.includes('cin >>') || cleanUserCode.includes('cout <<') || cleanUserCode.includes('main()')) {
     console.log('📝 Code already contains main function or I/O handling, returning as is...');
-    return cleanUserCode;
+    
+    // Fix common compilation issues in complete programs
+    let fixedCode = cleanUserCode;
+    
+    // Fix: Change non-const reference parameters to const reference or value
+    // This handles cases like: vector<int> twoSum(vector<int>& nums, int target)
+    // When called with temporary: sol.twoSum({2, 7, 11, 15}, 9)
+    fixedCode = fixedCode.replace(
+      /vector<int>&/g, 
+      'const vector<int>&'
+    );
+    fixedCode = fixedCode.replace(
+      /vector<long>&/g, 
+      'const vector<long>&'
+    );
+    fixedCode = fixedCode.replace(
+      /vector<double>&/g, 
+      'const vector<double>&'
+    );
+    fixedCode = fixedCode.replace(
+      /vector<float>&/g, 
+      'const vector<float>&'
+    );
+    fixedCode = fixedCode.replace(
+      /vector<bool>&/g, 
+      'const vector<bool>&'
+    );
+    fixedCode = fixedCode.replace(
+      /vector<string>&/g, 
+      'const vector<string>&'
+    );
+    
+    console.log('🔧 Fixed compilation issues in complete program');
+    return fixedCode;
   }
   
   // Extract method name from user's code
