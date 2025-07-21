@@ -21,18 +21,29 @@ const PORT = Number(process.env.PORT) || 5001;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/leetcode-clone';
 
 // Register CORS with WebSocket support
-// Disabled CORS here since nginx is handling it to prevent duplicate headers
-// app.register(cors, {
-//   origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173', 'https://vibecode-ui-8z5x.vercel.app', 'https://vibecode-ui-dz9c.vercel.app'],
-//   credentials: true,
-//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-//   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'user-id'],
-//   exposedHeaders: ['Content-Type', 'Authorization']
-// });
+app.register(cors, {
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173', 'https://vibecode-ui-8z5x.vercel.app', 'https://vibecode-ui-dz9c.vercel.app'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'user-id'],
+  exposedHeaders: ['Content-Type', 'Authorization']
+});
 
-console.log('✅ [SUBMISSION-SERVICE] CORS disabled in backend (handled by nginx)');
+console.log('✅ [SUBMISSION-SERVICE] CORS configured');
 
-console.log('✅ [SUBMISSION-SERVICE] CORS disabled in backend (handled by nginx)');
+// Handle OPTIONS preflight requests globally for all routes
+app.addHook('onRequest', async (request, reply) => {
+  if (request.method === 'OPTIONS') {
+    console.log('🔄 [SUBMISSION-SERVICE] Handling OPTIONS preflight request for:', request.url);
+    reply.header('Access-Control-Allow-Origin', request.headers.origin || '*');
+    reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, user-id');
+    reply.header('Access-Control-Allow-Credentials', 'true');
+    reply.header('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
+    reply.status(200).send();
+    return;
+  }
+});
 
 // Request logging middleware
 app.addHook('onRequest', async (request, reply) => {

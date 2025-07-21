@@ -124,3 +124,49 @@ export async function createSubmission(request: FastifyRequest, reply: FastifyRe
     return reply.status(500).send({ message: err.message });
   }
 }
+
+export async function getSubmissionById(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    // @ts-ignore
+    const userId = request.user.userId;
+    const { id } = request.params as any;
+    
+    console.log('🔍 [SUBMISSION] Getting submission by ID:', id, 'for user:', userId);
+    
+    const submission = await Submission.findById(id);
+    
+    if (!submission) {
+      console.log('❌ [SUBMISSION] Submission not found:', id);
+      return reply.status(404).send({ message: 'Submission not found' });
+    }
+    
+    // Check if user owns this submission
+    if (submission.userId.toString() !== userId) {
+      console.log('❌ [SUBMISSION] User not authorized to access submission:', userId, 'tried to access:', submission.userId);
+      return reply.status(403).send({ message: 'Not authorized to access this submission' });
+    }
+    
+    console.log('✅ [SUBMISSION] Submission retrieved successfully:', id);
+    return reply.status(200).send(submission);
+  } catch (err: any) {
+    console.error('❌ [SUBMISSION] Get submission error:', err);
+    return reply.status(500).send({ message: err.message });
+  }
+}
+
+export async function getUserSubmissions(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    // @ts-ignore
+    const userId = request.user.userId;
+    
+    console.log('🔍 [SUBMISSION] Getting submissions for user:', userId);
+    
+    const submissions = await Submission.find({ userId }).sort({ createdAt: -1 });
+    
+    console.log('✅ [SUBMISSION] Retrieved', submissions.length, 'submissions for user:', userId);
+    return reply.status(200).send(submissions);
+  } catch (err: any) {
+    console.error('❌ [SUBMISSION] Get user submissions error:', err);
+    return reply.status(500).send({ message: err.message });
+  }
+}
