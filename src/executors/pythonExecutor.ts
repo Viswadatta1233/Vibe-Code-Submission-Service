@@ -52,6 +52,44 @@ function buildPythonCode(fullCode: string): string {
     // Fix common formatting issues in complete programs
     let fixedCode = cleanUserCode;
     
+    // Fix: Detect and replace hardcoded test cases
+    // This handles cases where the user has hardcoded values like: sol.twoSum([2, 7, 11, 15], 9)
+    if (fixedCode.includes('[2, 7, 11, 15]') || fixedCode.includes('[3,2,4]') || fixedCode.includes('[3,3]') ||
+        /\[[\d,\s]+\]/.test(fixedCode) && fixedCode.includes('sol.') && (fixedCode.includes('print(') || fixedCode.includes('result ='))) {
+      console.log('🔧 Detected hardcoded test cases in Python, replacing with input parsing...');
+      
+      // Extract method name from the Solution class
+      const methodMatch = fixedCode.match(/def\s+(\w+)\s*\(/);
+      const methodName = methodMatch ? methodMatch[1] : 'twoSum';
+      
+      // Replace hardcoded calls with input parsing
+      fixedCode = fixedCode.replace(
+        /sol\.\w+\(\[[\d,\s]+\],\s*\d+\)/g,
+        `sol.${methodName}(nums, target)`
+      );
+      
+      // Add input parsing before the method call
+      const inputParsing = `
+# Parse input from stdin
+line = input().strip()
+parts = line.split('],')
+arr_str = parts[0].replace('[', '').replace(']', '').strip()
+
+# Handle empty array case
+if arr_str == "":
+    nums = []
+else:
+    arr_items = arr_str.split(',')
+    nums = [int(item.strip()) for item in arr_items]
+target = int(parts[1].strip())`;
+      
+      // Insert input parsing before the first method call
+      fixedCode = fixedCode.replace(
+        /(sol\.\w+\([^)]+\))/,
+        `${inputParsing}\n\n$1`
+      );
+    }
+    
     // Fix: Wrap list expressions in str() before calling replace
     // This handles cases like: sol.twoSum([2, 7, 11, 15], 9).replace(', ', ',')
     fixedCode = fixedCode.replace(

@@ -119,6 +119,58 @@ function buildCppCode(fullCode: string): string {
       'const vector<string>&'
     );
     
+    // Fix: Replace hardcoded test cases with input parsing
+    // This handles cases where the user has hardcoded values like: sol.twoSum({2, 7, 11, 15}, 9)
+    if (fixedCode.includes('{2, 7, 11, 15}') || fixedCode.includes('{3,2,4}') || fixedCode.includes('{3,3}') || 
+        /\{[\d,\s]+\}/.test(fixedCode) && fixedCode.includes('sol.') && fixedCode.includes('main()')) {
+      console.log('🔧 Detected hardcoded test cases, replacing with input parsing...');
+      
+      // Extract method name from the Solution class
+      const methodMatch = fixedCode.match(/vector<int>\s+(\w+)\s*\(/);
+      const methodName = methodMatch ? methodMatch[1] : 'twoSum';
+      
+      // Replace the hardcoded main function with proper input parsing
+      const newMainFunction = `int main() {
+    Solution sol;
+    
+    // Parse input from stdin
+    string line;
+    getline(cin, line);
+    
+    // Parse input: "[2,7,11,15],9" -> vector<int> and int
+    size_t commaPos = line.find_last_of(',');
+    string arrStr = line.substr(1, commaPos - 1);
+    int target = stoi(line.substr(commaPos + 1));
+    
+    // Parse array
+    vector<int> nums;
+    if (!arrStr.empty()) {
+        size_t start = 0;
+        size_t end = arrStr.find(',');
+        while (end != string::npos) {
+            nums.push_back(stoi(arrStr.substr(start, end - start)));
+            start = end + 1;
+            end = arrStr.find(',', start);
+        }
+        nums.push_back(stoi(arrStr.substr(start)));
+    }
+    
+    vector<int> result = sol.${methodName}(nums, target);
+    cout << "[" << result[0];
+    for (size_t i = 1; i < result.size(); ++i) {
+        cout << "," << result[i];
+    }
+    cout << "]" << endl;
+    return 0;
+}`;
+      
+      // Replace the entire main function
+      fixedCode = fixedCode.replace(
+        /int main\(\)\s*\{[\s\S]*?\}/,
+        newMainFunction
+      );
+    }
+    
     // Fix: Replace simple cout statements that output arrays with proper formatting
     // This handles cases like: for (int i : result) cout << i << " ";
     fixedCode = fixedCode.replace(

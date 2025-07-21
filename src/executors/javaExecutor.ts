@@ -88,6 +88,55 @@ function buildJavaCode(fullCode: string): string {
     // Fix common formatting issues in complete programs
     let fixedCode = fullCode;
     
+    // Fix: Detect and replace hardcoded test cases
+    // This handles cases where the user has hardcoded values like: sol.twoSum(new int[]{2, 7, 11, 15}, 9)
+    if (fixedCode.includes('new int[]{2, 7, 11, 15}') || fixedCode.includes('new int[]{3,2,4}') || fixedCode.includes('new int[]{3,3}') ||
+        /new\s+int\[\]\s*\{[\d,\s]+\}/.test(fixedCode) && fixedCode.includes('sol.') && fixedCode.includes('main(')) {
+      console.log('🔧 Detected hardcoded test cases in Java, replacing with input parsing...');
+      
+      // Extract method name from the Solution class
+      const methodMatch = fixedCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
+      const methodName = methodMatch ? methodMatch[1] : 'twoSum';
+      
+      // Replace the hardcoded main method with proper input parsing
+      const newMainMethod = `public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        String line = sc.nextLine().trim();
+        String[] parts = line.split("],");
+        String arrStr = parts[0].replace("[", "").replace("]", "").trim();
+        
+        // Handle empty array case
+        int[] nums;
+        if (arrStr.isEmpty()) {
+            nums = new int[0];
+        } else {
+            String[] arrItems = arrStr.split(",");
+            nums = new int[arrItems.length];
+            for (int i = 0; i < arrItems.length; i++) {
+                nums[i] = Integer.parseInt(arrItems[i].trim());
+            }
+        }
+        int target = Integer.parseInt(parts[1].trim());
+        
+        Solution sol = new Solution();
+        int[] result = sol.${methodName}(nums, target);
+        System.out.println(Arrays.toString(result).replaceAll(", ", ","));
+    }`;
+      
+      // Replace the entire main method
+      fixedCode = fixedCode.replace(
+        /public\s+static\s+void\s+main\s*\([^)]*\)\s*\{[\s\S]*?\}/,
+        newMainMethod
+      );
+    }
+    
+    // Fix: Wrap list expressions in str() before calling replace
+    // This handles cases like: sol.twoSum([2, 7, 11, 15], 9).replace(', ', ',')
+    fixedCode = fixedCode.replace(
+      /([a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\))\s*\.\s*replace\s*\(/g,
+      'str($1).replace('
+    );
+    
     // If the code has System.out.println statements, ensure they format arrays correctly
     if (fixedCode.includes('System.out.println(')) {
       // Replace println statements that might output arrays with formatted versions
