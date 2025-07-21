@@ -306,7 +306,7 @@ export async function runPythonDirect(fullCode: string, input: string): Promise<
         }
           await container.remove();
       } catch (e) {
-        console.error('Failed to cleanup direct container:', e);
+        console.error('Faileds to cleanup direct container:', e);
       }
     }
   }
