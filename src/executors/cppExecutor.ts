@@ -76,25 +76,34 @@ function testCppRegexPatterns() {
 // C++ code template for user submissions
 function buildCppCode(fullCode: string): string {
   console.log('🔧 Building C++ code with input:', fullCode);
-  
-  // Clean up the user code
   const cleanUserCode = fullCode.trim();
   console.log('🧹 Cleaned user code:', cleanUserCode);
-  
-  // Extract method name from the Solution class
-  const solutionMethodMatch = cleanUserCode.match(/class Solution\s*\{[\s\S]*?public:[\s\S]*?(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
-  const methodName = solutionMethodMatch ? solutionMethodMatch[1] : 'twoSum';
-  console.log('🔧 Extracted method name from Solution class:', methodName);
-  
-  // Extract the Solution class content - be more specific to avoid including main function
-  const solutionMatch = cleanUserCode.match(/class Solution\s*\{([\s\S]*?)\};\s*(?=int main|$)/);
-  if (!solutionMatch) {
-    console.error('❌ Could not find Solution class in the code');
-    return cleanUserCode;
+
+  // Try to extract the Solution class
+  let solutionMatch = cleanUserCode.match(/class Solution\s*\{([\s\S]*?)\};\s*(?=int main|$)/);
+  let solutionContent = '';
+  let isClass = false;
+  if (solutionMatch) {
+    solutionContent = solutionMatch[1].trim();
+    isClass = true;
+    console.log('🔧 Found Solution class.');
+  } else {
+    // Try to detect if it's just a method (e.g., 'vector<int> twoSum(...)')
+    const methodMatch = cleanUserCode.match(/^(?:[a-zA-Z_][\w<>:]*)\s+[a-zA-Z_][\w]*\s*\([\s\S]*\)\s*\{/m);
+    if (methodMatch) {
+      solutionContent = cleanUserCode;
+      isClass = false;
+      console.log('🔧 No Solution class found, but found a method. Wrapping in class Solution.');
+    } else {
+      // Fallback: return as is
+      console.error('❌ Could not find Solution class or method in the code');
+      return cleanUserCode;
+    }
   }
   
-  const solutionContent = solutionMatch[1].trim();
-  console.log('🔧 Extracted Solution class content');
+  // Extract method name from the Solution class
+  const methodName = isClass ? cleanUserCode.match(/class Solution\s*\{[\s\S]*?public:[\s\S]*?(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/)?.[1] : cleanUserCode.match(/^(?:[a-zA-Z_][\w<>:]*)\s+[a-zA-Z_][\w]*\s*\(([^)]*)\)\s*\{/)?.[1];
+  console.log('🔧 Extracted method name from Solution class:', methodName);
   
   // Create a new main function with proper input parsing
   let newMainFunction = '';

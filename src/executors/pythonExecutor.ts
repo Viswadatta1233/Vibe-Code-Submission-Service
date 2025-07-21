@@ -45,26 +45,32 @@ function buildPythonCode(fullCode: string): string {
   const cleanUserCode = fullCode.trim();
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
-  // Extract method name from the Solution class
-  const solutionMethodMatch = cleanUserCode.match(/class Solution:\s*def\s+(\w+)\s*\(/);
-  const methodName = solutionMethodMatch ? solutionMethodMatch[1] : 'twoSum';
-  console.log('🔧 Extracted method name from Solution class:', methodName);
-  
-  // Extract the Solution class content - be more specific to avoid including execution code
-  const solutionMatch = cleanUserCode.match(/class Solution:\s*([\s\S]*?)(?=\n\s*sol\s*=|$)/);
-  if (!solutionMatch) {
-    console.error('❌ Could not find Solution class in the code');
-    return cleanUserCode;
+  // Try to extract the Solution class
+  let solutionMatch = cleanUserCode.match(/class Solution:\s*([\s\S]*?)(?=\n\s*sol\s*=|$)/);
+  let solutionContent = '';
+  let isClass = false;
+  if (solutionMatch) {
+    solutionContent = solutionMatch[1].trim();
+    isClass = true;
+    console.log('🔧 Found Solution class.');
+  } else {
+    // Try to detect if it's just a method (def ...)
+    const methodMatch = cleanUserCode.match(/^def\s+\w+\s*\([\s\S]*\)\s*:/m);
+    if (methodMatch) {
+      // Indent all lines by 4 spaces
+      solutionContent = cleanUserCode.split('\n').map(line => line.trim() ? `    ${line}` : line).join('\n');
+      isClass = false;
+      console.log('🔧 No Solution class found, but found a method. Wrapping in class Solution.');
+    } else {
+      // Fallback: return as is
+      console.error('❌ Could not find Solution class or method in the code');
+      return cleanUserCode;
+    }
   }
   
-  // Properly indent the solution content
-  const solutionContent = solutionMatch[1].trim();
-  const indentedSolutionContent = solutionContent
-    .split('\n')
-    .map(line => line.trim() ? `    ${line}` : line) // Add 4 spaces indentation
-    .join('\n');
-  
-  console.log('🔧 Extracted Solution class content');
+  // Extract method name from the Solution class
+  const methodName = solutionMatch ? solutionMatch[1].match(/class Solution:\s*def\s+(\w+)\s*\(/)?.[1] : 'twoSum';
+  console.log('🔧 Extracted method name from Solution class:', methodName);
   
   // Create input parsing and method call based on problem type
   let inputParsing = '';
@@ -118,7 +124,7 @@ line = input().strip()`;
   const finalCode = `# This code will run in the testing environment
 
 class Solution:
-${indentedSolutionContent}
+${solutionContent}
 
 ${inputParsing}
 

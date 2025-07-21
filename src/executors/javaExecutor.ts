@@ -77,32 +77,39 @@ Map<Integer, Integer> map = new HashMap<>();
 // Java code template for user submissions
 function buildJavaCode(fullCode: string): string {
   console.log('🔧 Building Java code with input:', fullCode);
-  
-  // Clean up the user code
   const cleanUserCode = fullCode.trim();
   console.log('🧹 Cleaned user code:', cleanUserCode);
-  
-  // Extract method name from the Solution class
-  const solutionMethodMatch = cleanUserCode.match(/class Solution\s*\{[\s\S]*?public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
+
+  // Try to extract the Solution class
+  let solutionMatch = cleanUserCode.match(/class Solution\s*\{([\s\S]*)\}/);
+  let solutionContent = '';
+  let isClass = false;
+  if (solutionMatch) {
+    solutionContent = solutionMatch[1];
+    isClass = true;
+    console.log('🔧 Found Solution class.');
+  } else {
+    // Try to detect if it's just a method (public/protected/private ...)
+    const methodMatch = cleanUserCode.match(/(public|protected|private)?\s*(static)?\s*(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+\w+\s*\([\s\S]*\)\s*\{/);
+    if (methodMatch) {
+      solutionContent = cleanUserCode;
+      isClass = false;
+      console.log('🔧 No Solution class found, but found a method. Wrapping in class Solution.');
+    } else {
+      // Fallback: return as is
+      console.error('❌ Could not find Solution class or method in the code');
+      return cleanUserCode;
+    }
+  }
+
+  // Extract method name
+  const solutionMethodMatch = solutionContent.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
   const methodName = solutionMethodMatch ? solutionMethodMatch[1] : 'twoSum';
   console.log('🔧 Extracted method name from Solution class:', methodName);
-  
-  // Extract the Solution class content
-  const solutionMatch = cleanUserCode.match(/class Solution\s*\{([\s\S]*)\}/);
-  if (!solutionMatch) {
-    console.error('❌ Could not find Solution class in the code');
-    return cleanUserCode;
-  }
-  
-  const solutionContent = solutionMatch[1];
-  console.log('🔧 Extracted Solution class content');
-  
-  // Create a completely new main method with proper input parsing
+
+  // Build the new main method as before (existing logic)
   let newMainMethod = '';
-  
-  // Determine the problem type based on method name and parameters
   if (methodName === 'twoSum') {
-    // Two Sum: array + target
     newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
         String line = sc.nextLine().trim();
@@ -127,7 +134,6 @@ function buildJavaCode(fullCode: string): string {
         System.out.println(Arrays.toString(result).replaceAll(", ", ","));
     }`;
   } else if (methodName === 'isValid') {
-    // Valid Parentheses: string
     newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
         String s = sc.nextLine().trim().replaceAll("^\"|\"$", "");
@@ -136,7 +142,6 @@ function buildJavaCode(fullCode: string): string {
         System.out.println(result);
     }`;
   } else if (methodName === 'maxSubArray' || methodName === 'removeDuplicates') {
-    // Array problems: single array input
     newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
         String line = sc.nextLine().trim();
@@ -158,7 +163,6 @@ function buildJavaCode(fullCode: string): string {
         System.out.println(result);
     }`;
   } else if (methodName === 'isPalindrome') {
-    // Integer input
     newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
         int x = Integer.parseInt(sc.nextLine().trim());
@@ -175,8 +179,8 @@ function buildJavaCode(fullCode: string): string {
         // Add your method call here
     }`;
   }
-  
-  // Build the complete code with the new main method
+
+  // Build the final code
   const finalCode = `import java.util.*;
 
 public class Main {
@@ -186,7 +190,6 @@ ${newMainMethod}
 class Solution {
 ${solutionContent}
 }`;
-  
   console.log('🔧 Final processed code:', finalCode);
   return finalCode;
 }
