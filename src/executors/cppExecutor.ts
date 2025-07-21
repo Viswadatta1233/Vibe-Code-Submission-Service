@@ -86,14 +86,14 @@ function buildCppCode(fullCode: string): string {
   const methodName = solutionMethodMatch ? solutionMethodMatch[1] : 'twoSum';
   console.log('🔧 Extracted method name from Solution class:', methodName);
   
-  // Extract the Solution class content
-  const solutionMatch = cleanUserCode.match(/class Solution\s*\{([\s\S]*)\}/);
+  // Extract the Solution class content - be more specific to avoid including main function
+  const solutionMatch = cleanUserCode.match(/class Solution\s*\{([\s\S]*?)\};\s*(?=int main|$)/);
   if (!solutionMatch) {
     console.error('❌ Could not find Solution class in the code');
     return cleanUserCode;
   }
   
-  const solutionContent = solutionMatch[1];
+  const solutionContent = solutionMatch[1].trim();
   console.log('🔧 Extracted Solution class content');
   
   // Create a new main function with proper input parsing
@@ -191,7 +191,7 @@ function buildCppCode(fullCode: string): string {
 }`;
   }
   
-  // Build the complete code
+  // Build the complete code - only include the Solution class and new main function
   const finalCode = `#include <iostream>
 #include <vector>
 #include <string>

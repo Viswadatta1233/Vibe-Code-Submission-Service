@@ -50,14 +50,20 @@ function buildPythonCode(fullCode: string): string {
   const methodName = solutionMethodMatch ? solutionMethodMatch[1] : 'twoSum';
   console.log('🔧 Extracted method name from Solution class:', methodName);
   
-  // Extract the Solution class content
+  // Extract the Solution class content - be more specific to avoid including execution code
   const solutionMatch = cleanUserCode.match(/class Solution:\s*([\s\S]*?)(?=\n\s*sol\s*=|$)/);
   if (!solutionMatch) {
     console.error('❌ Could not find Solution class in the code');
     return cleanUserCode;
   }
   
+  // Properly indent the solution content
   const solutionContent = solutionMatch[1].trim();
+  const indentedSolutionContent = solutionContent
+    .split('\n')
+    .map(line => line.trim() ? `    ${line}` : line) // Add 4 spaces indentation
+    .join('\n');
+  
   console.log('🔧 Extracted Solution class content');
   
   // Create input parsing and method call based on problem type
@@ -108,11 +114,11 @@ line = input().strip()`;
     methodCall = `result = sol.${methodName}()`;
   }
   
-  // Build the complete code
+  // Build the complete code with proper indentation
   const finalCode = `# This code will run in the testing environment
 
 class Solution:
-${solutionContent}
+${indentedSolutionContent}
 
 ${inputParsing}
 
