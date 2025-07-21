@@ -52,6 +52,13 @@ function buildPythonCode(fullCode: string): string {
     // Fix common formatting issues in complete programs
     let fixedCode = cleanUserCode;
     
+    // Fix: Wrap list expressions in str() before calling replace
+    // This handles cases like: sol.twoSum([2, 7, 11, 15], 9).replace(', ', ',')
+    fixedCode = fixedCode.replace(
+      /([a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\))\s*\.\s*replace\s*\(/g,
+      'str($1).replace('
+    );
+    
     // If the code has print statements, ensure they format lists correctly
     if (fixedCode.includes('print(')) {
       // Replace print statements that might output lists with formatted versions

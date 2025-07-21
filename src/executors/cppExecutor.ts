@@ -119,7 +119,20 @@ function buildCppCode(fullCode: string): string {
       'const vector<string>&'
     );
     
-    console.log('🔧 Fixed compilation issues in complete program');
+    // Fix: Replace simple cout statements that output arrays with proper formatting
+    // This handles cases like: for (int i : result) cout << i << " ";
+    fixedCode = fixedCode.replace(
+      /for\s*\(\s*int\s+[a-zA-Z_][a-zA-Z0-9_]*\s*:\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\)\s*cout\s*<<\s*[a-zA-Z_][a-zA-Z0-9_]*\s*<<\s*[""][^""]*[""]\s*;/g,
+      'cout << "[" << result[0]; for (size_t i = 1; i < result.size(); ++i) { cout << "," << result[i]; } cout << "]" << endl;'
+    );
+    
+    // Fix: Replace simple cout statements that output single values with proper formatting
+    fixedCode = fixedCode.replace(
+      /cout\s*<<\s*[a-zA-Z_][a-zA-Z0-9_]*\s*<<\s*[""][^""]*[""]\s*;/g,
+      'cout << "[" << result << "]" << endl;'
+    );
+    
+    console.log('🔧 Fixed compilation and formatting issues in complete program');
     return fixedCode;
   }
   
