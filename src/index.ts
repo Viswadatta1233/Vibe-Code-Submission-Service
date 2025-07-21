@@ -75,7 +75,7 @@ app.post('/api/websocket/update', async (request, reply) => {
     return reply.status(400).send({ error: 'Missing required fields' });
   }
   
-  console.log(`📡 [SUBMISSION-SERVICE] HTTP update request for user ${userId}, submission ${submissionId}`);
+  console.log(`📡 [SUBMISSION-SERVICE] HTTP update requested for user ${userId}, submission ${submissionId}`);
   websocketService.sendSubmissionUpdate(userId, submissionId, data);
   
   return { success: true, message: 'Update sent' };
