@@ -186,7 +186,7 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
         }))
       });
       
-      // Add a small delay to make progress visible (optional)
+      // Add a small delay to make progress visible
       await new Promise(resolve => setTimeout(resolve, 500));
     }
   }

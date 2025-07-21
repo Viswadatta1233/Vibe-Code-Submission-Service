@@ -83,12 +83,55 @@ function buildJavaCode(fullCode: string): string {
   
   // If the code already contains 'public class Main', just return as is
   if (/public\s+class\s+Main/.test(fullCode)) {
-    console.log('📝 Code already contains Main class, applying patch...');
-    // Patch: Replace Arrays.toString(result) with Arrays.toString(result).replaceAll(", ", ",") in user code
-    return fullCode.replace(
-      /System\.out\.println\(Arrays\.toString\(([^)]*)\)\);/g,
-      'System.out.println(Arrays.toString($1).replaceAll(", ", ","));'
-    );
+    console.log('📝 Code already contains Main class, returning as is...');
+    return fullCode;
+  }
+
+  // If the code contains 'class Solution', it's a user method that needs wrapping
+  if (/class\s+Solution/.test(fullCode)) {
+    console.log('📝 Code contains Solution class, wrapping with Main class...');
+    
+    // Extract the Solution class content
+    const solutionMatch = fullCode.match(/class\s+Solution\s*\{([\s\S]*)\}/);
+    if (solutionMatch) {
+      const solutionContent = solutionMatch[1];
+      
+      // Create a simple Main class that calls the Solution
+      const mainClass = `import java.util.*;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        String line = sc.nextLine().trim();
+        String[] parts = line.split("],");
+        String arrStr = parts[0].replace("[", "").replace("]", "").trim();
+        
+        // Handle empty array case
+        int[] nums;
+        if (arrStr.isEmpty()) {
+            nums = new int[0];
+        } else {
+            String[] arrItems = arrStr.split(",");
+            nums = new int[arrItems.length];
+            for (int i = 0; i < arrItems.length; i++) {
+                nums[i] = Integer.parseInt(arrItems[i].trim());
+            }
+        }
+        int target = Integer.parseInt(parts[1].trim());
+        
+        Solution sol = new Solution();
+        int[] result = sol.twoSum(nums, target);
+        System.out.println(Arrays.toString(result).replaceAll(", ", ","));
+    }
+}
+
+class Solution {
+${solutionContent}
+}`;
+      
+      console.log('🔧 Generated Main class with Solution wrapper');
+      return mainClass;
+    }
   }
 
   // Extract method name from user's code
