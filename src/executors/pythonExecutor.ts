@@ -94,7 +94,9 @@ target = int(parts[1].strip())`;
   } else if (methodName === 'isValid') {
     // Valid Parentheses: string
     inputParsing = `# Parse input from stdin
-s = input().strip().strip('"')`;
+s = input().strip()
+if s.startswith('"') and s.endswith('"'):
+    s = s[1:-1]  # Remove first and last character (quotes)`;
     methodCall = `result = sol.${methodName}(s)`;
   } else if (methodName === 'maxSubArray' || methodName === 'removeDuplicates') {
     // Array problems: single array input

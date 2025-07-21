@@ -136,7 +136,7 @@ function buildJavaCode(fullCode: string): string {
   } else if (methodName === 'isValid') {
     newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
-        String s = sc.nextLine().trim().replaceAll("^\"|\"$", "");
+        String s = sc.nextLine().trim().replaceAll("^\\\"|\\\"$", "");
         Solution sol = new Solution();
         boolean result = sol.${methodName}(s);
         System.out.println(result);

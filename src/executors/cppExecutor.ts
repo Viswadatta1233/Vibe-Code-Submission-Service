@@ -102,7 +102,9 @@ function buildCppCode(fullCode: string): string {
   }
   
   // Extract method name from the Solution class
-  const methodName = isClass ? cleanUserCode.match(/class Solution\s*\{[\s\S]*?public:[\s\S]*?(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/)?.[1] : cleanUserCode.match(/^(?:[a-zA-Z_][\w<>:]*)\s+[a-zA-Z_][\w]*\s*\(([^)]*)\)\s*\{/)?.[1];
+  const methodName = isClass ? 
+    cleanUserCode.match(/class Solution\s*\{[\s\S]*?public:[\s\S]*?(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/)?.[1] : 
+    cleanUserCode.match(/^(?:[a-zA-Z_][\w<>:]*)\s+([a-zA-Z_][\w]*)\s*\(/)?.[1];
   console.log('🔧 Extracted method name from Solution class:', methodName);
   
   // Create a new main function with proper input parsing
