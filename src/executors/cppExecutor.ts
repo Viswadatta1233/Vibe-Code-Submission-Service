@@ -165,11 +165,46 @@ function buildCppCode(fullCode: string): string {
     return 0;
 }`;
       
-      // Replace the entire main function
-      fixedCode = fixedCode.replace(
-        /int main\(\)\s*\{[\s\S]*?\}/,
-        newMainFunction
-      );
+      // Replace the entire main function - be more specific about the pattern
+      const mainFunctionRegex = /int\s+main\s*\(\s*\)\s*\{[\s\S]*?\n\s*return\s+0\s*;\s*\n\s*\}/;
+      if (mainFunctionRegex.test(fixedCode)) {
+        fixedCode = fixedCode.replace(mainFunctionRegex, newMainFunction);
+      } else {
+        // Fallback: try to replace just the method call line
+        fixedCode = fixedCode.replace(
+          /vector<int>\s+result\s*=\s*sol\.\w+\(\{[^}]+\},\s*\d+\);/g,
+          `vector<int> result = sol.${methodName}(nums, target);`
+        );
+        
+        // Add input parsing before the main function
+        const inputParsing = `
+    // Parse input from stdin
+    string line;
+    getline(cin, line);
+    
+    // Parse input: "[2,7,11,15],9" -> vector<int> and int
+    size_t commaPos = line.find_last_of(',');
+    string arrStr = line.substr(1, commaPos - 1);
+    int target = stoi(line.substr(commaPos + 1));
+    
+    // Parse array
+    vector<int> nums;
+    if (!arrStr.empty()) {
+        size_t start = 0;
+        size_t end = arrStr.find(',');
+        while (end != string::npos) {
+            nums.push_back(stoi(arrStr.substr(start, end - start)));
+            start = end + 1;
+            end = arrStr.find(',', start);
+        }
+        nums.push_back(stoi(arrStr.substr(start)));
+    }`;
+        
+        fixedCode = fixedCode.replace(
+          /(int\s+main\s*\(\s*\)\s*\{[\s\S]*?Solution\s+sol;)/,
+          `$1${inputParsing}`
+        );
+      }
     }
     
     // Fix: Replace simple cout statements that output arrays with proper formatting

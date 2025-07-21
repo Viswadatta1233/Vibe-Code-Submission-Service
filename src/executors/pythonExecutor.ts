@@ -56,7 +56,8 @@ function buildPythonCode(fullCode: string): string {
     // Fix: Detect and replace hardcoded test cases
     // This handles cases where the user has hardcoded values like: sol.twoSum([2, 7, 11, 15], 9)
     if ((fixedCode.includes('[2, 7, 11, 15]') || fixedCode.includes('[3,2,4]') || fixedCode.includes('[3,3]')) &&
-        fixedCode.includes('sol.') && fixedCode.includes('print(') && !fixedCode.includes('def ')) {
+        fixedCode.includes('sol.') && fixedCode.includes('print(') && !fixedCode.includes('def ') && 
+        (fixedCode.includes('sol.twoSum([2, 7, 11, 15], 9)') || fixedCode.includes('sol.twoSum([3,2,4], 6)'))) {
       console.log('🔧 Detected hardcoded test cases in Python, replacing with input parsing...');
       
       // Extract method name from the Solution class
@@ -119,8 +120,17 @@ target = int(parts[1].strip())`;
   
   // Extract method name from user's code
   const methodMatch = cleanUserCode.match(/def\s+(\w+)\s*\(/);
-  const methodName = methodMatch ? methodMatch[1] : 'solve';
+  let methodName = methodMatch ? methodMatch[1] : 'twoSum';
   console.log('📋 Extracted method name:', methodName);
+  
+  // If no method found in user code, try to extract from the full code
+  if (methodName === 'twoSum' && !cleanUserCode.includes('def twoSum')) {
+    const fullCodeMatch = fullCode.match(/def\s+(\w+)\s*\(/);
+    if (fullCodeMatch) {
+      methodName = fullCodeMatch[1];
+      console.log('📋 Extracted method name from full code:', methodName);
+    }
+  }
   
   // Extract method parameters by parsing the method signature
   const methodSignatureMatch = cleanUserCode.match(/def\s+\w+\s*\(([^)]*)\)/);
@@ -263,6 +273,8 @@ if isinstance(result, list):
     output_str = str(result)
     # Remove spaces after commas and before closing brackets
     output_str = output_str.replace(', ', ',').replace(' ,', ',').replace('[ ', '[').replace(' ]', ']')
+    # Also remove any remaining spaces
+    output_str = output_str.replace(' ', '')
     print(output_str)
 elif isinstance(result, bool):
     print(str(result).lower())
