@@ -78,28 +78,28 @@ Map<Integer, Integer> map = new HashMap<>();
 function buildJavaCode(fullCode: string): string {
   console.log('🔧 Building Java code with input:', fullCode);
   
-  // Run test patterns first
-  testRegexPatterns();
+  // Clean up the user code
+  const cleanUserCode = fullCode.trim();
+  console.log('🧹 Cleaned user code:', cleanUserCode);
   
-  // If the code already contains 'public class Main', just return as is
-  if (/public\s+class\s+Main/.test(fullCode) && !fullCode.includes('class Solution')) {
-    console.log('📝 Code already contains Main class, returning as is...');
+  // The frontend already provides complete code, we just need to add input parsing
+  // and replace hardcoded test cases with dynamic input
+  
+  let processedCode = cleanUserCode;
+  
+  // Replace hardcoded test cases with input parsing
+  if (processedCode.includes('sol.twoSum(new int[]{2, 7, 11, 15}, 9)') || 
+      processedCode.includes('sol.twoSum(new int[]{3,2,4}, 6)') ||
+      processedCode.includes('sol.twoSum(new int[]{3,3}, 6)')) {
     
-    // Fix common formatting issues in complete programs
-    let fixedCode = fullCode;
+    console.log('🔧 Replacing hardcoded test cases with input parsing...');
     
-    // Fix: Detect and replace hardcoded test cases
-    // This handles cases where the user has hardcoded values like: sol.twoSum(new int[]{2, 7, 11, 15}, 9)
-    if (fixedCode.includes('new int[]{2, 7, 11, 15}') || fixedCode.includes('new int[]{3,2,4}') || fixedCode.includes('new int[]{3,3}') ||
-        /new\s+int\[\]\s*\{[\d,\s]+\}/.test(fixedCode) && fixedCode.includes('sol.') && fixedCode.includes('main(')) {
-      console.log('🔧 Detected hardcoded test cases in Java, replacing with input parsing...');
-      
-      // Extract method name from the Solution class
-      const methodMatch = fixedCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
-      const methodName = methodMatch ? methodMatch[1] : 'twoSum';
-      
-      // Replace the hardcoded main method with proper input parsing
-      const newMainMethod = `public static void main(String[] args) {
+    // Extract method name from the code
+    const methodMatch = processedCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
+    const methodName = methodMatch ? methodMatch[1] : 'twoSum';
+    
+    // Replace the hardcoded main method with input parsing
+    const newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
         String line = sc.nextLine().trim();
         String[] parts = line.split("],");
@@ -122,217 +122,45 @@ function buildJavaCode(fullCode: string): string {
         int[] result = sol.${methodName}(nums, target);
         System.out.println(Arrays.toString(result).replaceAll(", ", ","));
     }`;
-      
-      // Replace the entire main method
-      fixedCode = fixedCode.replace(
+    
+    // Replace the entire main method
+    processedCode = processedCode.replace(
+      /public\s+static\s+void\s+main\s*\([^)]*\)\s*\{[\s\S]*?\}/,
+      newMainMethod
+    );
+  }
+  
+  // Handle other problem types
+  if (processedCode.includes('sol.isValid(') || processedCode.includes('sol.maxSubArray(') || 
+      processedCode.includes('sol.isPalindrome(') || processedCode.includes('sol.removeDuplicates(')) {
+    
+    console.log('🔧 Replacing hardcoded test cases for other problems...');
+    
+    // Extract method name
+    const methodMatch = processedCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
+    const methodName = methodMatch ? methodMatch[1] : 'solve';
+    
+    // Replace hardcoded calls with input parsing
+    if (processedCode.includes('sol.isValid(')) {
+      // String input
+      const newMainMethod = `public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        String s = sc.nextLine().trim().replaceAll("^\"|\"$", "");
+        Solution sol = new Solution();
+        boolean result = sol.${methodName}(s);
+        System.out.println(result);
+    }`;
+      processedCode = processedCode.replace(
         /public\s+static\s+void\s+main\s*\([^)]*\)\s*\{[\s\S]*?\}/,
         newMainMethod
       );
-    }
-    
-    // Fix: Wrap list expressions in str() before calling replace
-    // This handles cases like: sol.twoSum([2, 7, 11, 15], 9).replace(', ', ',')
-    fixedCode = fixedCode.replace(
-      /([a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\))\s*\.\s*replace\s*\(/g,
-      'str($1).replace('
-    );
-    
-    // If the code has System.out.println statements, ensure they format arrays correctly
-    if (fixedCode.includes('System.out.println(')) {
-      // Replace println statements that might output arrays with formatted versions
-      fixedCode = fixedCode.replace(
-        /System\.out\.println\s*\(\s*([^)]+)\s*\)/g,
-        (match, content) => {
-          // If the content looks like it might be an array, format it
-          if (content.includes('Arrays.toString') || content.includes('result') || content.includes('ans')) {
-            return `System.out.println(${content}.replaceAll(", ", ","))`;
-          }
-          return match;
-        }
-      );
-    }
-    
-    console.log('🔧 Fixed formatting issues in complete program');
-    return fixedCode;
-  }
-
-  // If the code contains 'class Solution', it's a user method that needs wrapping
-  if (/class\s+Solution/.test(fullCode)) {
-    console.log('📝 Code contains Solution class, wrapping with Main class...');
-    
-    // Extract the Solution class content
-    const solutionMatch = fullCode.match(/class\s+Solution\s*\{([\s\S]*)\}/);
-    if (solutionMatch) {
-      const solutionContent = solutionMatch[1];
-      
-      // Extract method name from the Solution class
-      const methodMatch = solutionContent.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
-      const methodName = methodMatch ? methodMatch[1] : 'twoSum';
-      
-      // Extract return type from the Solution class
-      const returnTypeMatch = solutionContent.match(/public\s+(?:static\s+)?(int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+\w+\s*\(/);
-      const returnType = returnTypeMatch ? returnTypeMatch[1] : 'int[]';
-      
-      console.log('📋 Extracted method name from Solution:', methodName);
-      console.log('📋 Extracted return type from Solution:', returnType);
-      
-      // Create a simple Main class that calls the Solution
-      const mainClass = `import java.util.*;
-
-public class Main {
-    public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        String line = sc.nextLine().trim();
-        String[] parts = line.split("],");
-        String arrStr = parts[0].replace("[", "").replace("]", "").trim();
-        
-        // Handle empty array case
-        int[] nums;
-        if (arrStr.isEmpty()) {
-            nums = new int[0];
-        } else {
-            String[] arrItems = arrStr.split(",");
-            nums = new int[arrItems.length];
-            for (int i = 0; i < arrItems.length; i++) {
-                nums[i] = Integer.parseInt(arrItems[i].trim());
-            }
-        }
-        int target = Integer.parseInt(parts[1].trim());
-        
-        Solution sol = new Solution();
-        ${returnType} result = sol.${methodName}(nums, target);
-        System.out.println(Arrays.toString(result).replaceAll(", ", ","));
-    }
-}
-
-class Solution {
-${solutionContent}
-}`;
-      
-      console.log('🔧 Generated Main class with Solution wrapper');
-      return mainClass;
-    }
-  }
-
-  // Extract method name from user's code
-  const methodMatch = fullCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
-  const methodName = methodMatch ? methodMatch[1] : 'solve';
-  console.log('📋 Extracted method name:', methodName);
-  
-  // Extract return type from user's code
-  const returnTypeMatch = fullCode.match(/public\s+(?:static\s+)?(int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+\w+\s*\(/);
-  const returnType = returnTypeMatch ? returnTypeMatch[1] : 'int';
-  console.log('📋 Extracted return type:', returnType);
-  
-  // Extract method parameters by parsing the method signature
-  const methodSignatureMatch = fullCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+\w+\s*\(([^)]*)\)/);
-  const methodParams = methodSignatureMatch ? methodSignatureMatch[1].trim() : '';
-  console.log('📋 Extracted method parameters:', methodParams);
-  
-  // Parse parameters more accurately
-  const hasArrayParam = /int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\]/.test(methodParams);
-  const hasIntParam = /\bint\s+\w+/.test(methodParams) && !/int\[\]/.test(methodParams);
-  const hasStringParam = /\bString\s+\w+/.test(methodParams) && !/String\[\]/.test(methodParams);
-  const hasLongParam = /\blong\s+\w+/.test(methodParams) && !/long\[\]/.test(methodParams);
-  const hasDoubleParam = /\bdouble\s+\w+/.test(methodParams) && !/double\[\]/.test(methodParams);
-  
-  // Count parameters
-  const paramCount = methodParams ? methodParams.split(',').length : 0;
-  
-  // Fallback: If we have array param and more than 1 parameter, assume it's array + something
-  const hasMultipleParams = paramCount > 1;
-  
-  console.log('🔍 Method signature analysis:', {
-    methodName,
-    returnType,
-    methodParams,
-    hasArrayParam,
-    hasIntParam,
-    hasStringParam,
-    hasLongParam,
-    hasDoubleParam,
-    paramCount,
-    hasMultipleParams
-  });
-  
-  let inputParsing = '';
-  let methodCall = '';
-  
-  if (hasArrayParam && hasIntParam) {
-    console.log('✅ Detected array + int parameters (Two Sum pattern)');
-    // For problems like Two Sum: [1,2,3], 5
-    inputParsing = `
-        Scanner sc = new Scanner(System.in);
-        String line = sc.nextLine().trim();
-        String[] parts = line.split("],");
-        String arrStr = parts[0].replace("[", "").replace("]", "").trim();
-        
-        // Handle empty array case
-        int[] nums;
-        if (arrStr.isEmpty()) {
-            nums = new int[0];
-        } else {
-            String[] arrItems = arrStr.split(",");
-            nums = new int[arrItems.length];
-            for (int i = 0; i < arrItems.length; i++) {
-                nums[i] = Integer.parseInt(arrItems[i].trim());
-            }
-        }
-        int target = Integer.parseInt(parts[1].trim());`;
-    methodCall = `sol.${methodName}(nums, target)`;
-  } else if (hasArrayParam && hasMultipleParams) {
-    console.log('✅ Detected array + multiple parameters (fallback for Two Sum pattern)');
-    // Fallback for Two Sum pattern when regex detection fails
-    inputParsing = `
-        Scanner sc = new Scanner(System.in);
-        String line = sc.nextLine().trim();
-        String[] parts = line.split("],");
-        String arrStr = parts[0].replace("[", "").replace("]", "").trim();
-        
-        // Handle empty array case
-        int[] nums;
-        if (arrStr.isEmpty()) {
-            nums = new int[0];
-        } else {
-            String[] arrItems = arrStr.split(",");
-            nums = new int[arrItems.length];
-            for (int i = 0; i < arrItems.length; i++) {
-                nums[i] = Integer.parseInt(arrItems[i].trim());
-            }
-        }
-        int target = Integer.parseInt(parts[1].trim());`;
-    methodCall = `sol.${methodName}(nums, target)`;
-  } else if (hasArrayParam && hasStringParam) {
-    console.log('✅ Detected array + string parameters');
-    // For problems with array and string parameters
-    inputParsing = `
-        Scanner sc = new Scanner(System.in);
-        String line = sc.nextLine().trim();
-        String[] parts = line.split("],");
-        String arrStr = parts[0].replace("[", "").replace("]", "").trim();
-        
-        // Handle empty array case
-        int[] nums;
-        if (arrStr.isEmpty()) {
-            nums = new int[0];
-        } else {
-            String[] arrItems = arrStr.split(",");
-            nums = new int[arrItems.length];
-            for (int i = 0; i < arrItems.length; i++) {
-                nums[i] = Integer.parseInt(arrItems[i].trim());
-            }
-        }
-        String s = parts[1].replace("\"", "").trim();`;
-    methodCall = `sol.${methodName}(nums, s)`;
-  } else if (hasArrayParam) {
-    console.log('✅ Detected array only parameters (Maximum Subarray pattern)');
-    // For problems with only array parameter like Maximum Subarray
-    inputParsing = `
+    } else if (processedCode.includes('sol.maxSubArray(') || processedCode.includes('sol.removeDuplicates(')) {
+      // Array input
+      const newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
         String line = sc.nextLine().trim();
         String arrStr = line.replace("[", "").replace("]", "").trim();
         
-        // Handle empty array case
         int[] nums;
         if (arrStr.isEmpty()) {
             nums = new int[0];
@@ -342,73 +170,47 @@ ${solutionContent}
             for (int i = 0; i < arrItems.length; i++) {
                 nums[i] = Integer.parseInt(arrItems[i].trim());
             }
-        }`;
-    methodCall = `sol.${methodName}(nums)`;
-  } else if (hasStringParam) {
-    console.log('✅ Detected string only parameters');
-    // For problems with only string parameter
-    inputParsing = `
+        }
+        
+        Solution sol = new Solution();
+        int result = sol.${methodName}(nums);
+        System.out.println(result);
+    }`;
+      processedCode = processedCode.replace(
+        /public\s+static\s+void\s+main\s*\([^)]*\)\s*\{[\s\S]*?\}/,
+        newMainMethod
+      );
+    } else if (processedCode.includes('sol.isPalindrome(')) {
+      // Integer input
+      const newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
-        String s = sc.nextLine().trim();
-        // Remove quotes if present
-        if (s.length() >= 2 && s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"') {
-            s = s.substring(1, s.length() - 1);
-        }`;
-    methodCall = `sol.${methodName}(s)`;
-  } else if (hasIntParam) {
-    console.log('✅ Detected int only parameters');
-    // For problems with only int parameter
-    inputParsing = `
-        Scanner sc = new Scanner(System.in);
-        int n = Integer.parseInt(sc.nextLine().trim());`;
-    methodCall = `sol.${methodName}(n)`;
-  } else if (hasLongParam) {
-    console.log('✅ Detected long only parameters');
-    // For problems with only long parameter
-    inputParsing = `
-        Scanner sc = new Scanner(System.in);
-        long n = Long.parseLong(sc.nextLine().trim());`;
-    methodCall = `sol.${methodName}(n)`;
-  } else if (hasDoubleParam) {
-    console.log('✅ Detected double only parameters');
-    // For problems with only double parameter
-    inputParsing = `
-        Scanner sc = new Scanner(System.in);
-        double n = Double.parseDouble(sc.nextLine().trim());`;
-    methodCall = `sol.${methodName}(n)`;
-  } else {
-    console.log('⚠️ No specific parameter pattern detected, using default');
-    // Default case
-    inputParsing = `
-        Scanner sc = new Scanner(System.in);
-        String line = sc.nextLine().trim();`;
-    methodCall = `sol.${methodName}()`;
+        int x = Integer.parseInt(sc.nextLine().trim());
+        Solution sol = new Solution();
+        boolean result = sol.${methodName}(x);
+        System.out.println(result);
+    }`;
+      processedCode = processedCode.replace(
+        /public\s+static\s+void\s+main\s*\([^)]*\)\s*\{[\s\S]*?\}/,
+        newMainMethod
+      );
+    }
   }
   
-  console.log('🔧 Generated input parsing:', inputParsing);
-  console.log('🔧 Generated method call:', methodCall);
-  
-  // Determine output formatting based on return type
-  let outputFormatting = '';
-  if (returnType === 'int[]' || returnType === 'long[]' || returnType === 'double[]' || returnType === 'float[]' || returnType === 'boolean[]' || returnType === 'String[]') {
-    outputFormatting = `System.out.println(Arrays.toString(result).replaceAll(", ", ","));`;
-  } else if (returnType === 'List<') {
-    outputFormatting = `System.out.println(result.toString().replaceAll(", ", ","));`;
-  } else if (returnType === 'boolean') {
-    outputFormatting = `System.out.println(result);`;
-  } else if (returnType === 'String') {
-    outputFormatting = `System.out.println(result);`;
-  } else {
-    outputFormatting = `System.out.println(result);`;
+  // Ensure proper output formatting
+  if (processedCode.includes('System.out.println(')) {
+    processedCode = processedCode.replace(
+      /System\.out\.println\s*\(\s*([^)]+)\s*\)/g,
+      (match, content) => {
+        if (content.includes('Arrays.toString') || content.includes('result') || content.includes('ans')) {
+          return `System.out.println(${content}.replaceAll(", ", ","))`;
+        }
+        return match;
+      }
+    );
   }
   
-  console.log('🔧 Generated output formatting:', outputFormatting);
-
-  const finalCode = `import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {${inputParsing}\n        Solution sol = new Solution();\n        ${returnType} result = ${methodCall};\n        ${outputFormatting}\n    }\n}\n\nclass Solution {\n${fullCode}\n}\n`;
-  
-  console.log('🔧 Final generated code:', finalCode);
-  
-  return finalCode;
+  console.log('🔧 Final processed code:', processedCode);
+  return processedCode;
 }
 
 export async function runJava(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {

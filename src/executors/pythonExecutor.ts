@@ -45,33 +45,24 @@ function buildPythonCode(fullCode: string): string {
   const cleanUserCode = fullCode.trim();
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
-  // If the code already contains input/output handling, return as is
-  if ((cleanUserCode.includes('input()') || cleanUserCode.includes('print(') || cleanUserCode.includes('if __name__') || cleanUserCode.includes('sys.argv')) &&
-      !cleanUserCode.includes('def ') && !cleanUserCode.includes('class Solution:')) {
-    console.log('📝 Code already contains input/output handling, returning as is...');
+  // The frontend already provides complete code, we just need to add input parsing
+  // and replace hardcoded test cases with dynamic input
+  
+  let processedCode = cleanUserCode;
+  
+  // Replace hardcoded test cases with input parsing
+  if (processedCode.includes('sol.twoSum([2, 7, 11, 15], 9)') || 
+      processedCode.includes('sol.twoSum([3,2,4], 6)') ||
+      processedCode.includes('sol.twoSum([3,3], 6)')) {
     
-    // Fix common formatting issues in complete programs
-    let fixedCode = cleanUserCode;
+    console.log('🔧 Replacing hardcoded test cases with input parsing...');
     
-    // Fix: Detect and replace hardcoded test cases
-    // This handles cases where the user has hardcoded values like: sol.twoSum([2, 7, 11, 15], 9)
-    if ((fixedCode.includes('[2, 7, 11, 15]') || fixedCode.includes('[3,2,4]') || fixedCode.includes('[3,3]')) &&
-        fixedCode.includes('sol.') && fixedCode.includes('print(') && !fixedCode.includes('def ') && 
-        (fixedCode.includes('sol.twoSum([2, 7, 11, 15], 9)') || fixedCode.includes('sol.twoSum([3,2,4], 6)'))) {
-      console.log('🔧 Detected hardcoded test cases in Python, replacing with input parsing...');
-      
-      // Extract method name from the Solution class
-      const methodMatch = fixedCode.match(/def\s+(\w+)\s*\(/);
-      const methodName = methodMatch ? methodMatch[1] : 'twoSum';
-      
-      // Replace hardcoded calls with input parsing
-      fixedCode = fixedCode.replace(
-        /sol\.\w+\(\[[\d,\s]+\],\s*\d+\)/g,
-        `sol.${methodName}(nums, target)`
-      );
-      
-      // Add input parsing before the method call
-      const inputParsing = `
+    // Extract method name from the code
+    const methodMatch = processedCode.match(/def\s+(\w+)\s*\(/);
+    const methodName = methodMatch ? methodMatch[1] : 'twoSum';
+    
+    // Replace the hardcoded call with input parsing
+    const inputParsing = `
 # Parse input from stdin
 line = input().strip()
 parts = line.split('],')
@@ -84,208 +75,76 @@ else:
     arr_items = arr_str.split(',')
     nums = [int(item.strip()) for item in arr_items]
 target = int(parts[1].strip())`;
-      
-      // Insert input parsing before the first method call
-      fixedCode = fixedCode.replace(
-        /(sol\.\w+\([^)]+\))/,
-        `${inputParsing}\n\n$1`
-      );
-    }
     
-    // Fix: Wrap list expressions in str() before calling replace
-    // This handles cases like: sol.twoSum([2, 7, 11, 15], 9).replace(', ', ',')
-    fixedCode = fixedCode.replace(
-      /([a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\))\s*\.\s*replace\s*\(/g,
-      'str($1).replace('
+    // Replace the hardcoded method call
+    processedCode = processedCode.replace(
+      /sol\.\w+\(\[[\d,\s]+\],\s*\d+\)/g,
+      `sol.${methodName}(nums, target)`
     );
     
-    // If the code has print statements, ensure they format lists correctly
-    if (fixedCode.includes('print(')) {
-      // Replace print statements that might output lists with formatted versions
-      fixedCode = fixedCode.replace(
-        /print\s*\(\s*([^)]+)\s*\)/g,
-        (match, content) => {
-          // If the content looks like it might be a list, format it
-          if (content.includes('[') || content.includes('result') || content.includes('ans')) {
-            return `print(str(${content}).replace(', ', ',').replace(' ,', ',').replace('[ ', '[').replace(' ]', ']'))`;
-          }
-          return match;
-        }
+    // Insert input parsing before the method call
+    processedCode = processedCode.replace(
+      /(sol\.\w+\([^)]+\))/,
+      `${inputParsing}\n\n$1`
+    );
+  }
+  
+  // Handle other problem types
+  if (processedCode.includes('sol.isValid(') || processedCode.includes('sol.maxSubArray(') || 
+      processedCode.includes('sol.isPalindrome(') || processedCode.includes('sol.removeDuplicates(')) {
+    
+    console.log('🔧 Replacing hardcoded test cases for other problems...');
+    
+    // Extract method name
+    const methodMatch = processedCode.match(/def\s+(\w+)\s*\(/);
+    const methodName = methodMatch ? methodMatch[1] : 'solve';
+    
+    // Replace hardcoded calls with input parsing
+    if (processedCode.includes('sol.isValid(')) {
+      // String input
+      processedCode = processedCode.replace(
+        /sol\.isValid\([^)]+\)/g,
+        `s = input().strip().strip('"')
+sol.isValid(s)`
+      );
+    } else if (processedCode.includes('sol.maxSubArray(') || processedCode.includes('sol.removeDuplicates(')) {
+      // Array input
+      processedCode = processedCode.replace(
+        /sol\.\w+\(\[[\d,\s-]+\]\)/g,
+        `line = input().strip()
+arr_str = line.replace('[', '').replace(']', '').strip()
+if arr_str == "":
+    nums = []
+else:
+    arr_items = arr_str.split(',')
+    nums = [int(item.strip()) for item in arr_items]
+sol.${methodName}(nums)`
+      );
+    } else if (processedCode.includes('sol.isPalindrome(')) {
+      // Integer input
+      processedCode = processedCode.replace(
+        /sol\.isPalindrome\(\d+\)/g,
+        `x = int(input().strip())
+sol.isPalindrome(x)`
       );
     }
-    
-    console.log('🔧 Fixed formatting issues in complete program');
-    return fixedCode;
   }
   
-  // Extract method name from user's code
-  const methodMatch = cleanUserCode.match(/def\s+(\w+)\s*\(/);
-  let methodName = methodMatch ? methodMatch[1] : 'twoSum';
-  console.log('📋 Extracted method name:', methodName);
-  
-  // If no method found in user code, try to extract from the full code
-  if (methodName === 'twoSum' && !cleanUserCode.includes('def twoSum')) {
-    const fullCodeMatch = fullCode.match(/def\s+(\w+)\s*\(/);
-    if (fullCodeMatch) {
-      methodName = fullCodeMatch[1];
-      console.log('📋 Extracted method name from full code:', methodName);
-    }
-  }
-  
-  // Extract method parameters by parsing the method signature
-  const methodSignatureMatch = cleanUserCode.match(/def\s+\w+\s*\(([^)]*)\)/);
-  let methodParams = methodSignatureMatch ? methodSignatureMatch[1].trim() : '';
-  
-  // Clean up type hints from parameters (e.g., "self, x: int" -> "self, x")
-  methodParams = methodParams.replace(/:\s*\w+(?:\[.*?\])?/g, '');
-  
-  console.log('📋 Extracted method parameters:', methodParams);
-  
-  // Extract individual parameter names (excluding self)
-  const paramNames = methodParams.split(',').map(p => p.trim()).filter(p => p !== 'self');
-  console.log('🔍 Individual parameter names:', paramNames);
-  
-  // Count parameters (excluding self)
-  const paramCount = paramNames.length;
-  const hasMultipleParams = paramCount > 1;
-  
-  console.log('🔍 Method signature analysis:', {
-    methodName,
-    methodParams,
-    paramNames,
-    paramCount,
-    hasMultipleParams
-  });
-  
-  let inputParsing = '';
-  let methodCall = '';
-  
-  // Simple logic based on parameter count (like Java/C++)
-  if (paramCount === 0) {
-    console.log('✅ Detected no parameters');
-    inputParsing = `
-# Parse input and run the solution
-import sys
-# No input needed`;
-    methodCall = `sol.${methodName}()`;
-  } else if (paramCount === 1) {
-    console.log('✅ Detected single parameter');
-    const paramName = paramNames[0];
-    
-    // Simple input parsing based on parameter name pattern
-    if (paramName === 's' || paramName === 'str') {
-      inputParsing = `
-# Parse input and run the solution
-import sys
-${paramName} = input().strip()
-# Remove quotes if present
-if ${paramName}.startswith('"') and ${paramName}.endswith('"'):
-    ${paramName} = ${paramName}[1:-1]`;
-    } else if (paramName === 'nums' || paramName === 'prices') {
-      // Array parameter
-      inputParsing = `
-# Parse input and run the solution
-import sys
-line = input().strip()
-arr_str = line.replace('[', '').replace(']', '').strip()
-
-# Handle empty array case
-if arr_str == "":
-    ${paramName} = []
-else:
-    arr_items = arr_str.split(',')
-    ${paramName} = [int(item.strip()) for item in arr_items]`;
-    } else {
-      // Assume integer parameter
-      inputParsing = `
-# Parse input and run the solution
-import sys
-${paramName} = int(input().strip())`;
-    }
-    methodCall = `sol.${methodName}(${paramName})`;
-  } else if (paramCount === 2) {
-    console.log('✅ Detected two parameters');
-    const [param1, param2] = paramNames;
-    
-    // Check if it's array + target pattern
-    if ((param1 === 'nums' || param1 === 'prices') && param2 === 'target') {
-      inputParsing = `
-# Parse input and run the solution
-import sys
-line = input().strip()
-parts = line.split('],')
-arr_str = parts[0].replace('[', '').replace(']', '').strip()
-
-# Handle empty array case
-if arr_str == "":
-    ${param1} = []
-else:
-    arr_items = arr_str.split(',')
-    ${param1} = [int(item.strip()) for item in arr_items]
-${param2} = int(parts[1].strip())`;
-    } else {
-      // Generic two parameter parsing
-      inputParsing = `
-# Parse input and run the solution
-import sys
-line = input().strip()
-parts = line.split(',')
-${param1} = int(parts[0].strip())
-${param2} = int(parts[1].strip())`;
-    }
-    methodCall = `sol.${methodName}(${param1}, ${param2})`;
-  } else {
-    console.log('⚠️ Multiple parameters detected, using generic parsing');
-    // Generic parsing for multiple parameters
-    const paramAssignments = paramNames.map((param, index) => {
-      if (param === 's' || param === 'str') {
-        return `${param} = input().strip()`;
-      } else {
-        return `${param} = int(input().strip())`;
+  // Ensure proper output formatting
+  if (processedCode.includes('print(')) {
+    processedCode = processedCode.replace(
+      /print\s*\(\s*([^)]+)\s*\)/g,
+      (match, content) => {
+        if (content.includes('[') || content.includes('result') || content.includes('ans')) {
+          return `print(str(${content}).replace(' ', ''))`;
+        }
+        return match;
       }
-    }).join('\n');
-    
-    inputParsing = `
-# Parse input and run the solution
-import sys
-${paramAssignments}`;
-    methodCall = `sol.${methodName}(${paramNames.join(', ')})`;
+    );
   }
   
-  console.log('🔧 Generated input parsing:', inputParsing);
-  console.log('🔧 Generated method call:', methodCall);
-  
-  // Indent user code by 4 spaces for class method
-  const indentedUserCode = cleanUserCode.split('\n').map(line => '    ' + line).join('\n');
-  
-  const finalCode = `# This code will run in the testing environment
-
-class Solution:
-${indentedUserCode}
-
-${inputParsing}
-
-sol = Solution()
-result = ${methodCall}
-# Format output to match expected format (no spaces in lists, lowercase booleans)
-if isinstance(result, list):
-    # Remove all spaces from list representation - more aggressive approach
-    output_str = str(result)
-    # Remove spaces after commas and before closing brackets
-    output_str = output_str.replace(', ', ',').replace(' ,', ',').replace('[ ', '[').replace(' ]', ']')
-    # Also remove any remaining spaces
-    output_str = output_str.replace(' ', '')
-    print(output_str)
-elif isinstance(result, bool):
-    print(str(result).lower())
-elif isinstance(result, str):
-    print(result)
-else:
-    print(result)`;
-  
-  console.log('🔧 Final generated code:', finalCode);
-  
-  return finalCode;
+  console.log('🔧 Final processed code:', processedCode);
+  return processedCode;
 }
 
 export async function runPython(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {

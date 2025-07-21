@@ -77,61 +77,28 @@ function testCppRegexPatterns() {
 function buildCppCode(fullCode: string): string {
   console.log('🔧 Building C++ code with input:', fullCode);
   
-  // Run test patterns first
-  testCppRegexPatterns();
-  
   // Clean up the user code
   const cleanUserCode = fullCode.trim();
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
-  // If the code already contains main function or input/output handling, return as is
-  if ((cleanUserCode.includes('int main(') || cleanUserCode.includes('cin >>') || cleanUserCode.includes('cout <<') || cleanUserCode.includes('main()')) &&
-      !cleanUserCode.includes('class Solution')) {
-    console.log('📝 Code already contains main function or I/O handling, returning as is...');
+  // The frontend already provides complete code, we just need to add input parsing
+  // and replace hardcoded test cases with dynamic input
+  
+  let processedCode = cleanUserCode;
+  
+  // Replace hardcoded test cases with input parsing
+  if (processedCode.includes('sol.twoSum({2, 7, 11, 15}, 9)') || 
+      processedCode.includes('sol.twoSum({3,2,4}, 6)') ||
+      processedCode.includes('sol.twoSum({3,3}, 6)')) {
     
-    // Fix common compilation issues in complete programs
-    let fixedCode = cleanUserCode;
+    console.log('🔧 Replacing hardcoded test cases with input parsing...');
     
-    // Fix: Change non-const reference parameters to const reference or value
-    // This handles cases like: vector<int> twoSum(vector<int>& nums, int target)
-    // When called with temporary: sol.twoSum({2, 7, 11, 15}, 9)
-    fixedCode = fixedCode.replace(
-      /vector<int>&/g, 
-      'const vector<int>&'
-    );
-    fixedCode = fixedCode.replace(
-      /vector<long>&/g, 
-      'const vector<long>&'
-    );
-    fixedCode = fixedCode.replace(
-      /vector<double>&/g, 
-      'const vector<double>&'
-    );
-    fixedCode = fixedCode.replace(
-      /vector<float>&/g, 
-      'const vector<float>&'
-    );
-    fixedCode = fixedCode.replace(
-      /vector<bool>&/g, 
-      'const vector<bool>&'
-    );
-    fixedCode = fixedCode.replace(
-      /vector<string>&/g, 
-      'const vector<string>&'
-    );
+    // Extract method name from the code
+    const methodMatch = processedCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
+    const methodName = methodMatch ? methodMatch[1] : 'twoSum';
     
-    // Fix: Replace hardcoded test cases with input parsing
-    // This handles cases where the user has hardcoded values like: sol.twoSum({2, 7, 11, 15}, 9)
-    if (fixedCode.includes('{2, 7, 11, 15}') || fixedCode.includes('{3,2,4}') || fixedCode.includes('{3,3}') || 
-        /\{[\d,\s]+\}/.test(fixedCode) && fixedCode.includes('sol.') && fixedCode.includes('main()')) {
-      console.log('🔧 Detected hardcoded test cases, replacing with input parsing...');
-      
-      // Extract method name from the Solution class
-      const methodMatch = fixedCode.match(/vector<int>\s+(\w+)\s*\(/);
-      const methodName = methodMatch ? methodMatch[1] : 'twoSum';
-      
-      // Replace the hardcoded main function with proper input parsing
-      const newMainFunction = `int main() {
+    // Replace the hardcoded main function with input parsing
+    const newMainFunction = `int main() {
     Solution sol;
     
     // Parse input from stdin
@@ -164,30 +131,48 @@ function buildCppCode(fullCode: string): string {
     cout << "]" << endl;
     return 0;
 }`;
-      
-      // Replace the entire main function - be more specific about the pattern
-      const mainFunctionRegex = /int\s+main\s*\(\s*\)\s*\{[\s\S]*?\n\s*return\s+0\s*;\s*\n\s*\}/;
-      if (mainFunctionRegex.test(fixedCode)) {
-        fixedCode = fixedCode.replace(mainFunctionRegex, newMainFunction);
-      } else {
-        // Fallback: try to replace just the method call line
-        fixedCode = fixedCode.replace(
-          /vector<int>\s+result\s*=\s*sol\.\w+\(\{[^}]+\},\s*\d+\);/g,
-          `vector<int> result = sol.${methodName}(nums, target);`
-        );
-        
-        // Add input parsing before the main function
-        const inputParsing = `
-    // Parse input from stdin
+    
+    // Replace the entire main function
+    processedCode = processedCode.replace(
+      /int\s+main\s*\(\s*\)\s*\{[\s\S]*?\n\s*return\s+0\s*;\s*\n\s*\}/,
+      newMainFunction
+    );
+  }
+  
+  // Handle other problem types
+  if (processedCode.includes('sol.isValid(') || processedCode.includes('sol.maxSubArray(') || 
+      processedCode.includes('sol.isPalindrome(') || processedCode.includes('sol.removeDuplicates(')) {
+    
+    console.log('🔧 Replacing hardcoded test cases for other problems...');
+    
+    // Extract method name
+    const methodMatch = processedCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
+    const methodName = methodMatch ? methodMatch[1] : 'solve';
+    
+    // Replace hardcoded calls with input parsing
+    if (processedCode.includes('sol.isValid(')) {
+      // String input
+      const newMainFunction = `int main() {
+    Solution sol;
+    string s;
+    getline(cin, s);
+    s = s.substr(1, s.length() - 2); // Remove quotes
+    bool result = sol.${methodName}(s);
+    cout << (result ? "true" : "false") << endl;
+    return 0;
+}`;
+      processedCode = processedCode.replace(
+        /int\s+main\s*\(\s*\)\s*\{[\s\S]*?\n\s*return\s+0\s*;\s*\n\s*\}/,
+        newMainFunction
+      );
+    } else if (processedCode.includes('sol.maxSubArray(') || processedCode.includes('sol.removeDuplicates(')) {
+      // Array input
+      const newMainFunction = `int main() {
+    Solution sol;
     string line;
     getline(cin, line);
+    string arrStr = line.substr(1, line.length() - 2); // Remove [ and ]
     
-    // Parse input: "[2,7,11,15],9" -> vector<int> and int
-    size_t commaPos = line.find_last_of(',');
-    string arrStr = line.substr(1, commaPos - 1);
-    int target = stoi(line.substr(commaPos + 1));
-    
-    // Parse array
     vector<int> nums;
     if (!arrStr.empty()) {
         size_t start = 0;
@@ -198,271 +183,43 @@ function buildCppCode(fullCode: string): string {
             end = arrStr.find(',', start);
         }
         nums.push_back(stoi(arrStr.substr(start)));
-    }`;
-        
-        fixedCode = fixedCode.replace(
-          /(int\s+main\s*\(\s*\)\s*\{[\s\S]*?Solution\s+sol;)/,
-          `$1${inputParsing}`
-        );
-      }
     }
     
-    // Fix: Replace simple cout statements that output arrays with proper formatting
-    // This handles cases like: for (int i : result) cout << i << " ";
-    fixedCode = fixedCode.replace(
+    int result = sol.${methodName}(nums);
+    cout << result << endl;
+    return 0;
+}`;
+      processedCode = processedCode.replace(
+        /int\s+main\s*\(\s*\)\s*\{[\s\S]*?\n\s*return\s+0\s*;\s*\n\s*\}/,
+        newMainFunction
+      );
+    } else if (processedCode.includes('sol.isPalindrome(')) {
+      // Integer input
+      const newMainFunction = `int main() {
+    Solution sol;
+    int x;
+    cin >> x;
+    bool result = sol.${methodName}(x);
+    cout << (result ? "true" : "false") << endl;
+    return 0;
+}`;
+      processedCode = processedCode.replace(
+        /int\s+main\s*\(\s*\)\s*\{[\s\S]*?\n\s*return\s+0\s*;\s*\n\s*\}/,
+        newMainFunction
+      );
+    }
+  }
+  
+  // Ensure proper output formatting
+  if (processedCode.includes('cout <<')) {
+    processedCode = processedCode.replace(
       /for\s*\(\s*int\s+[a-zA-Z_][a-zA-Z0-9_]*\s*:\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\)\s*cout\s*<<\s*[a-zA-Z_][a-zA-Z0-9_]*\s*<<\s*[""][^""]*[""]\s*;/g,
       'cout << "[" << result[0]; for (size_t i = 1; i < result.size(); ++i) { cout << "," << result[i]; } cout << "]" << endl;'
     );
-    
-    // Fix: Replace simple cout statements that output single values with proper formatting
-    fixedCode = fixedCode.replace(
-      /cout\s*<<\s*[a-zA-Z_][a-zA-Z0-9_]*\s*<<\s*[""][^""]*[""]\s*;/g,
-      'cout << "[" << result << "]" << endl;'
-    );
-    
-    console.log('🔧 Fixed compilation and formatting issues in complete program');
-    return fixedCode;
   }
   
-  // Extract method name from user's code
-  const methodMatch = cleanUserCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
-  const methodName = methodMatch ? methodMatch[1] : 'solve';
-  console.log('📋 Extracted method name:', methodName);
-  
-  // Extract return type from user's code
-  const returnTypeMatch = cleanUserCode.match(/(int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+\w+\s*\(/);
-  const returnType = returnTypeMatch ? returnTypeMatch[1] : 'int';
-  console.log('📋 Extracted return type:', returnType);
-  
-  // Extract method parameters by parsing the method signature
-  const methodSignatureMatch = cleanUserCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+\w+\s*\(([^)]*)\)/);
-  const methodParams = methodSignatureMatch ? methodSignatureMatch[1].trim() : '';
-  console.log('📋 Extracted method parameters:', methodParams);
-  
-  // Parse parameters more accurately
-  const hasVectorParam = /(?:std::)?vector<.*>/.test(methodParams);
-  const hasIntParam = /\bint\s+\w+/.test(methodParams) && !/int\[\]/.test(methodParams);
-  const hasStringParam = /\bstring\s+\w+/.test(methodParams) && !/string\[\]/.test(methodParams);
-  const hasLongParam = /\blong\s+\w+/.test(methodParams) && !/long\[\]/.test(methodParams);
-  const hasDoubleParam = /\bdouble\s+\w+/.test(methodParams) && !/double\[\]/.test(methodParams);
-  
-  // Count parameters
-  const paramCount = methodParams ? methodParams.split(',').length : 0;
-  const hasMultipleParams = paramCount > 1;
-  
-  // Fallback: If we have vector param and more than 1 parameter, assume it's vector + something
-  const hasMultipleParamsWithVector = hasVectorParam && hasMultipleParams;
-  
-  console.log('🔍 Method signature analysis:', {
-    methodName,
-    returnType,
-    methodParams,
-    hasVectorParam,
-    hasIntParam,
-    hasStringParam,
-    hasLongParam,
-    hasDoubleParam,
-    paramCount,
-    hasMultipleParams,
-    hasMultipleParamsWithVector
-  });
-  
-  let inputParsing = '';
-  let methodCall = '';
-  
-  if (hasVectorParam && hasIntParam) {
-    console.log('✅ Detected vector + int parameters (Two Sum pattern)');
-    // For problems like Two Sum: [1,2,3], 5
-    inputParsing = `
-    string line;
-    getline(cin, line);
-    
-    // Parse input: "[2,7,11,15],9" -> vector<int> and int
-    size_t commaPos = line.find_last_of(',');
-    string arrStr = line.substr(1, commaPos - 1);
-    int target = stoi(line.substr(commaPos + 1));
-    
-    // Parse array
-    vector<int> nums;
-    if (!arrStr.empty()) {
-        size_t start = 0;
-        size_t end = arrStr.find(',');
-        while (end != string::npos) {
-            nums.push_back(stoi(arrStr.substr(start, end - start)));
-            start = end + 1;
-            end = arrStr.find(',', start);
-        }
-        nums.push_back(stoi(arrStr.substr(start)));
-    }`;
-    methodCall = `sol.${methodName}(nums, target)`;
-  } else if (hasVectorParam && hasMultipleParams) {
-    console.log('✅ Detected vector + multiple parameters (fallback for Two Sum pattern)');
-    // Fallback for Two Sum pattern when regex detection fails
-    inputParsing = `
-    string line;
-    getline(cin, line);
-    
-    // Parse input: "[2,7,11,15],9" -> vector<int> and int
-    size_t commaPos = line.find_last_of(',');
-    string arrStr = line.substr(1, commaPos - 1);
-    int target = stoi(line.substr(commaPos + 1));
-    
-    // Parse array
-    vector<int> nums;
-    if (!arrStr.empty()) {
-        size_t start = 0;
-        size_t end = arrStr.find(',');
-        while (end != string::npos) {
-            nums.push_back(stoi(arrStr.substr(start, end - start)));
-            start = end + 1;
-            end = arrStr.find(',', start);
-        }
-        nums.push_back(stoi(arrStr.substr(start)));
-    }`;
-    methodCall = `sol.${methodName}(nums, target)`;
-  } else if (hasVectorParam) {
-    console.log('✅ Detected vector only parameters (Maximum Subarray pattern)');
-    // For problems with only vector parameter like Maximum Subarray
-    inputParsing = `
-    string line;
-    getline(cin, line);
-    
-    // Parse input: "[-2,1,-3,4,-1,2,1,-5,4]" -> vector<int>
-    string arrStr = line.substr(1, line.length() - 2); // Remove [ and ]
-    
-    // Parse array
-    vector<int> nums;
-    if (!arrStr.empty()) {
-        size_t start = 0;
-        size_t end = arrStr.find(',');
-        while (end != string::npos) {
-            nums.push_back(stoi(arrStr.substr(start, end - start)));
-            start = end + 1;
-            end = arrStr.find(',', start);
-        }
-        nums.push_back(stoi(arrStr.substr(start)));
-    }`;
-    methodCall = `sol.${methodName}(nums)`;
-  } else if (hasStringParam) {
-    console.log('✅ Detected string only parameters');
-    // For problems with only string parameter
-    inputParsing = `
-    string s;
-    getline(cin, s);
-    // Remove quotes if present
-    if (s.length() >= 2 && s[0] == '"' && s[s.length()-1] == '"') {
-        s = s.substr(1, s.length() - 2);
-    }`;
-    methodCall = `sol.${methodName}(s)`;
-  } else if (hasIntParam) {
-    console.log('✅ Detected int only parameters');
-    // For problems with only int parameter
-    inputParsing = `
-    int n;
-    cin >> n;`;
-    methodCall = `sol.${methodName}(n)`;
-  } else if (hasLongParam) {
-    console.log('✅ Detected long only parameters');
-    // For problems with only long parameter
-    inputParsing = `
-    long n;
-    cin >> n;`;
-    methodCall = `sol.${methodName}(n)`;
-  } else if (hasDoubleParam) {
-    console.log('✅ Detected double only parameters');
-    // For problems with only double parameter
-    inputParsing = `
-    double n;
-    cin >> n;`;
-    methodCall = `sol.${methodName}(n)`;
-  } else {
-    console.log('⚠️ No specific parameter pattern detected, using default');
-    // Default case
-    inputParsing = `
-    string line;
-    getline(cin, line);`;
-    methodCall = `sol.${methodName}()`;
-  }
-  
-  console.log('🔧 Generated input parsing:', inputParsing);
-  console.log('🔧 Generated method call:', methodCall);
-  
-  // Determine output formatting based on return type
-  let outputFormatting = '';
-  if (returnType === 'vector<int>' || returnType === 'std::vector<int>' || returnType === 'vector<long>' || returnType === 'vector<double>' || returnType === 'vector<float>' || returnType === 'vector<bool>' || returnType === 'vector<string>') {
-    outputFormatting = `
-    if (result.empty()) {
-        cout << "[]" << endl;
-    } else {
-        cout << "[" << result[0];
-        for (size_t i = 1; i < result.size(); ++i) {
-            cout << "," << result[i];
-        }
-        cout << "]" << endl;
-    }`;
-  } else if (returnType === 'bool') {
-    outputFormatting = `
-    cout << (result ? "true" : "false") << endl;`;
-  } else if (returnType === 'string') {
-    outputFormatting = `
-    cout << result << endl;`;
-  } else {
-    outputFormatting = `
-    cout << result << endl;`;
-  }
-  
-  console.log('🔧 Generated output formatting:', outputFormatting);
-
-  // Determine required includes based on user's code
-  let requiredIncludes = ['#include <iostream>', '#include <vector>', '#include <string>', '#include <algorithm>'];
-  
-  if (cleanUserCode.includes('unordered_map')) {
-    requiredIncludes.push('#include <unordered_map>');
-  }
-  if (cleanUserCode.includes('map') && !cleanUserCode.includes('unordered_map')) {
-    requiredIncludes.push('#include <map>');
-  }
-  if (cleanUserCode.includes('set')) {
-    requiredIncludes.push('#include <set>');
-  }
-  if (cleanUserCode.includes('queue')) {
-    requiredIncludes.push('#include <queue>');
-  }
-  if (cleanUserCode.includes('stack')) {
-    requiredIncludes.push('#include <stack>');
-  }
-  if (cleanUserCode.includes('deque')) {
-    requiredIncludes.push('#include <deque>');
-  }
-  if (cleanUserCode.includes('list')) {
-    requiredIncludes.push('#include <list>');
-  }
-  if (cleanUserCode.includes('cmath') || cleanUserCode.includes('math.h')) {
-    requiredIncludes.push('#include <cmath>');
-  }
-  if (cleanUserCode.includes('cstring') || cleanUserCode.includes('string.h')) {
-    requiredIncludes.push('#include <cstring>');
-  }
-  
-  console.log('🔧 Required includes:', requiredIncludes);
-
-  const finalCode = `${requiredIncludes.join('\n')}
-using namespace std;
-
-class Solution {
-public:
-${cleanUserCode}
-};
-
-int main() {
-    Solution sol;${inputParsing}
-    ${returnType} result = ${methodCall};${outputFormatting}
-    return 0;
-}`;
-  
-  console.log('🔧 Final generated code:', finalCode);
-  
-  return finalCode;
+  console.log('🔧 Final processed code:', processedCode);
+  return processedCode;
 }
 
 export async function runCpp(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
