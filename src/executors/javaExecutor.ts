@@ -87,16 +87,17 @@ function buildJavaCode(fullCode: string): string {
   
   let processedCode = cleanUserCode;
   
+  // Extract method name from the Solution class, not from main method
+  const solutionMethodMatch = processedCode.match(/class Solution\s*\{[\s\S]*?public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
+  const methodName = solutionMethodMatch ? solutionMethodMatch[1] : 'twoSum';
+  console.log('🔧 Extracted method name from Solution class:', methodName);
+  
   // Replace hardcoded test cases with input parsing
   if (processedCode.includes('sol.twoSum(new int[]{2, 7, 11, 15}, 9)') || 
       processedCode.includes('sol.twoSum(new int[]{3,2,4}, 6)') ||
       processedCode.includes('sol.twoSum(new int[]{3,3}, 6)')) {
     
     console.log('🔧 Replacing hardcoded test cases with input parsing...');
-    
-    // Extract method name from the code
-    const methodMatch = processedCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
-    const methodName = methodMatch ? methodMatch[1] : 'twoSum';
     
     // Replace the hardcoded main method with input parsing
     const newMainMethod = `public static void main(String[] args) {
@@ -135,10 +136,6 @@ function buildJavaCode(fullCode: string): string {
       processedCode.includes('sol.isPalindrome(') || processedCode.includes('sol.removeDuplicates(')) {
     
     console.log('🔧 Replacing hardcoded test cases for other problems...');
-    
-    // Extract method name
-    const methodMatch = processedCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
-    const methodName = methodMatch ? methodMatch[1] : 'solve';
     
     // Replace hardcoded calls with input parsing
     if (processedCode.includes('sol.isValid(')) {
@@ -196,12 +193,12 @@ function buildJavaCode(fullCode: string): string {
     }
   }
   
-  // Ensure proper output formatting
+  // Ensure proper output formatting - only fix existing println statements, don't add new ones
   if (processedCode.includes('System.out.println(')) {
     processedCode = processedCode.replace(
       /System\.out\.println\s*\(\s*([^)]+)\s*\)/g,
       (match, content) => {
-        if (content.includes('Arrays.toString') || content.includes('result') || content.includes('ans')) {
+        if (content.includes('Arrays.toString') && content.includes('result')) {
           return `System.out.println(${content}.replaceAll(", ", ","))`;
         }
         return match;
