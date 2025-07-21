@@ -96,6 +96,17 @@ function buildJavaCode(fullCode: string): string {
     if (solutionMatch) {
       const solutionContent = solutionMatch[1];
       
+      // Extract method name from the Solution class
+      const methodMatch = solutionContent.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
+      const methodName = methodMatch ? methodMatch[1] : 'twoSum';
+      
+      // Extract return type from the Solution class
+      const returnTypeMatch = solutionContent.match(/public\s+(?:static\s+)?(int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+\w+\s*\(/);
+      const returnType = returnTypeMatch ? returnTypeMatch[1] : 'int[]';
+      
+      console.log('📋 Extracted method name from Solution:', methodName);
+      console.log('📋 Extracted return type from Solution:', returnType);
+      
       // Create a simple Main class that calls the Solution
       const mainClass = `import java.util.*;
 
@@ -120,7 +131,7 @@ public class Main {
         int target = Integer.parseInt(parts[1].trim());
         
         Solution sol = new Solution();
-        int[] result = sol.twoSum(nums, target);
+        ${returnType} result = sol.${methodName}(nums, target);
         System.out.println(Arrays.toString(result).replaceAll(", ", ","));
     }
 }

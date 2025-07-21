@@ -84,6 +84,12 @@ function buildCppCode(fullCode: string): string {
   const cleanUserCode = fullCode.trim();
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
+  // If the code already contains main function or input/output handling, return as is
+  if (cleanUserCode.includes('int main(') || cleanUserCode.includes('cin >>') || cleanUserCode.includes('cout <<')) {
+    console.log('📝 Code already contains main function or I/O handling, returning as is...');
+    return cleanUserCode;
+  }
+  
   // Extract method name from user's code
   const methodMatch = cleanUserCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
   const methodName = methodMatch ? methodMatch[1] : 'solve';
@@ -251,11 +257,15 @@ function buildCppCode(fullCode: string): string {
   let outputFormatting = '';
   if (returnType === 'vector<int>' || returnType === 'std::vector<int>' || returnType === 'vector<long>' || returnType === 'vector<double>' || returnType === 'vector<float>' || returnType === 'vector<bool>' || returnType === 'vector<string>') {
     outputFormatting = `
-    cout << "[" << result[0];
-    for (size_t i = 1; i < result.size(); ++i) {
-        cout << "," << result[i];
-    }
-    cout << "]" << endl;`;
+    if (result.empty()) {
+        cout << "[]" << endl;
+    } else {
+        cout << "[" << result[0];
+        for (size_t i = 1; i < result.size(); ++i) {
+            cout << "," << result[i];
+        }
+        cout << "]" << endl;
+    }`;
   } else if (returnType === 'bool') {
     outputFormatting = `
     cout << (result ? "true" : "false") << endl;`;

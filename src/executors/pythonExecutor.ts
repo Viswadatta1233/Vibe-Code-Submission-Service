@@ -45,6 +45,12 @@ function buildPythonCode(fullCode: string): string {
   const cleanUserCode = fullCode.trim();
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
+  // If the code already contains input/output handling, return as is
+  if (cleanUserCode.includes('input()') || cleanUserCode.includes('print(')) {
+    console.log('📝 Code already contains input/output handling, returning as is...');
+    return cleanUserCode;
+  }
+  
   // Extract method name from user's code
   const methodMatch = cleanUserCode.match(/def\s+(\w+)\s*\(/);
   const methodName = methodMatch ? methodMatch[1] : 'solve';
@@ -187,9 +193,12 @@ sol = Solution()
 result = ${methodCall}
 # Format output to match expected format (no spaces in lists, lowercase booleans)
 if isinstance(result, list):
+    # Remove all spaces from list representation
     print(str(result).replace(' ', ''))
 elif isinstance(result, bool):
     print(str(result).lower())
+elif isinstance(result, str):
+    print(result)
 else:
     print(result)`;
   
