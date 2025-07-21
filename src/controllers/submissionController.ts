@@ -3,7 +3,7 @@ import Submission from '../models/Submission';
 import axios from 'axios';
 import { addSubmissionJob } from '../producers/submissionProducer';
 
-const PROBLEM_SERVICE_URL = process.env.PROBLEM_SERVICE_URL || 'http://localhost:5000/api/problems';
+const PROBLEM_SERVICE_URL ='https://vibecodepbs.duckdns.org/api/problems';
 
 export async function createSubmission(request: FastifyRequest, reply: FastifyReply) {
   console.log('📝 [SUBMISSION] Create submission request received');
