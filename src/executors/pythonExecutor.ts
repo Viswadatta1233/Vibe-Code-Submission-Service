@@ -45,25 +45,28 @@ function buildPythonCode(fullCode: string): string {
   const cleanUserCode = fullCode.trim();
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
-  // The frontend already provides complete code, we just need to add input parsing
-  // and replace hardcoded test cases with dynamic input
+  // Extract method name from the Solution class
+  const solutionMethodMatch = cleanUserCode.match(/class Solution:\s*def\s+(\w+)\s*\(/);
+  const methodName = solutionMethodMatch ? solutionMethodMatch[1] : 'twoSum';
+  console.log('🔧 Extracted method name from Solution class:', methodName);
   
-  let processedCode = cleanUserCode;
+  // Extract the Solution class content
+  const solutionMatch = cleanUserCode.match(/class Solution:\s*([\s\S]*?)(?=\n\s*sol\s*=|$)/);
+  if (!solutionMatch) {
+    console.error('❌ Could not find Solution class in the code');
+    return cleanUserCode;
+  }
   
-  // Replace hardcoded test cases with input parsing
-  if (processedCode.includes('sol.twoSum([2, 7, 11, 15], 9)') || 
-      processedCode.includes('sol.twoSum([3,2,4], 6)') ||
-      processedCode.includes('sol.twoSum([3,3], 6)')) {
-    
-    console.log('🔧 Replacing hardcoded test cases with input parsing...');
-    
-    // Extract method name from the code
-    const methodMatch = processedCode.match(/def\s+(\w+)\s*\(/);
-    const methodName = methodMatch ? methodMatch[1] : 'twoSum';
-    
-    // Replace the hardcoded call with input parsing
-    const inputParsing = `
-# Parse input from stdin
+  const solutionContent = solutionMatch[1].trim();
+  console.log('🔧 Extracted Solution class content');
+  
+  // Create input parsing and method call based on problem type
+  let inputParsing = '';
+  let methodCall = '';
+  
+  if (methodName === 'twoSum') {
+    // Two Sum: array + target
+    inputParsing = `# Parse input from stdin
 line = input().strip()
 parts = line.split('],')
 arr_str = parts[0].replace('[', '').replace(']', '').strip()
@@ -75,76 +78,61 @@ else:
     arr_items = arr_str.split(',')
     nums = [int(item.strip()) for item in arr_items]
 target = int(parts[1].strip())`;
-    
-    // Replace the hardcoded method call
-    processedCode = processedCode.replace(
-      /sol\.\w+\(\[[\d,\s]+\],\s*\d+\)/g,
-      `sol.${methodName}(nums, target)`
-    );
-    
-    // Insert input parsing before the method call
-    processedCode = processedCode.replace(
-      /(sol\.\w+\([^)]+\))/,
-      `${inputParsing}\n\n$1`
-    );
-  }
-  
-  // Handle other problem types
-  if (processedCode.includes('sol.isValid(') || processedCode.includes('sol.maxSubArray(') || 
-      processedCode.includes('sol.isPalindrome(') || processedCode.includes('sol.removeDuplicates(')) {
-    
-    console.log('🔧 Replacing hardcoded test cases for other problems...');
-    
-    // Extract method name
-    const methodMatch = processedCode.match(/def\s+(\w+)\s*\(/);
-    const methodName = methodMatch ? methodMatch[1] : 'solve';
-    
-    // Replace hardcoded calls with input parsing
-    if (processedCode.includes('sol.isValid(')) {
-      // String input
-      processedCode = processedCode.replace(
-        /sol\.isValid\([^)]+\)/g,
-        `s = input().strip().strip('"')
-sol.isValid(s)`
-      );
-    } else if (processedCode.includes('sol.maxSubArray(') || processedCode.includes('sol.removeDuplicates(')) {
-      // Array input
-      processedCode = processedCode.replace(
-        /sol\.\w+\(\[[\d,\s-]+\]\)/g,
-        `line = input().strip()
+    methodCall = `result = sol.${methodName}(nums, target)`;
+  } else if (methodName === 'isValid') {
+    // Valid Parentheses: string
+    inputParsing = `# Parse input from stdin
+s = input().strip().strip('"')`;
+    methodCall = `result = sol.${methodName}(s)`;
+  } else if (methodName === 'maxSubArray' || methodName === 'removeDuplicates') {
+    // Array problems: single array input
+    inputParsing = `# Parse input from stdin
+line = input().strip()
 arr_str = line.replace('[', '').replace(']', '').strip()
+
 if arr_str == "":
     nums = []
 else:
     arr_items = arr_str.split(',')
-    nums = [int(item.strip()) for item in arr_items]
-sol.${methodName}(nums)`
-      );
-    } else if (processedCode.includes('sol.isPalindrome(')) {
-      // Integer input
-      processedCode = processedCode.replace(
-        /sol\.isPalindrome\(\d+\)/g,
-        `x = int(input().strip())
-sol.isPalindrome(x)`
-      );
-    }
+    nums = [int(item.strip()) for item in arr_items]`;
+    methodCall = `result = sol.${methodName}(nums)`;
+  } else if (methodName === 'isPalindrome') {
+    // Integer input
+    inputParsing = `# Parse input from stdin
+x = int(input().strip())`;
+    methodCall = `result = sol.${methodName}(x)`;
+  } else {
+    // Default case
+    inputParsing = `# Parse input from stdin
+line = input().strip()`;
+    methodCall = `result = sol.${methodName}()`;
   }
   
-  // Ensure proper output formatting
-  if (processedCode.includes('print(')) {
-    processedCode = processedCode.replace(
-      /print\s*\(\s*([^)]+)\s*\)/g,
-      (match, content) => {
-        if (content.includes('[') || content.includes('result') || content.includes('ans')) {
-          return `print(str(${content}).replace(' ', ''))`;
-        }
-        return match;
-      }
-    );
-  }
+  // Build the complete code
+  const finalCode = `# This code will run in the testing environment
+
+class Solution:
+${solutionContent}
+
+${inputParsing}
+
+sol = Solution()
+${methodCall}
+
+# Format output to match expected format
+if isinstance(result, list):
+    # Remove all spaces from list representation
+    output_str = str(result)
+    output_str = output_str.replace(', ', ',').replace(' ,', ',').replace('[ ', '[').replace(' ]', ']')
+    output_str = output_str.replace(' ', '')
+    print(output_str)
+elif isinstance(result, bool):
+    print(str(result).lower())
+else:
+    print(result)`;
   
-  console.log('🔧 Final processed code:', processedCode);
-  return processedCode;
+  console.log('🔧 Final processed code:', finalCode);
+  return finalCode;
 }
 
 export async function runPython(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {

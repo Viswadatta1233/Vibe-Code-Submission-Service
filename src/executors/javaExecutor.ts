@@ -82,30 +82,33 @@ function buildJavaCode(fullCode: string): string {
   const cleanUserCode = fullCode.trim();
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
-  // The frontend already provides complete code, we just need to add input parsing
-  // and replace hardcoded test cases with dynamic input
-  
-  let processedCode = cleanUserCode;
-  
-  // Extract method name from the Solution class, not from main method
-  const solutionMethodMatch = processedCode.match(/class Solution\s*\{[\s\S]*?public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
+  // Extract method name from the Solution class
+  const solutionMethodMatch = cleanUserCode.match(/class Solution\s*\{[\s\S]*?public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
   const methodName = solutionMethodMatch ? solutionMethodMatch[1] : 'twoSum';
   console.log('🔧 Extracted method name from Solution class:', methodName);
   
-  // Replace hardcoded test cases with input parsing
-  if (processedCode.includes('sol.twoSum(new int[]{2, 7, 11, 15}, 9)') || 
-      processedCode.includes('sol.twoSum(new int[]{3,2,4}, 6)') ||
-      processedCode.includes('sol.twoSum(new int[]{3,3}, 6)')) {
-    
-    console.log('🔧 Replacing hardcoded test cases with input parsing...');
-    
-    // Replace the hardcoded main method with input parsing
-    const newMainMethod = `public static void main(String[] args) {
+  // Extract the Solution class content
+  const solutionMatch = cleanUserCode.match(/class Solution\s*\{([\s\S]*)\}/);
+  if (!solutionMatch) {
+    console.error('❌ Could not find Solution class in the code');
+    return cleanUserCode;
+  }
+  
+  const solutionContent = solutionMatch[1];
+  console.log('🔧 Extracted Solution class content');
+  
+  // Create a completely new main method with proper input parsing
+  let newMainMethod = '';
+  
+  // Determine the problem type based on method name and parameters
+  if (methodName === 'twoSum') {
+    // Two Sum: array + target
+    newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
         String line = sc.nextLine().trim();
         String[] parts = line.split("],");
         String arrStr = parts[0].replace("[", "").replace("]", "").trim();
-        
+
         // Handle empty array case
         int[] nums;
         if (arrStr.isEmpty()) {
@@ -118,42 +121,23 @@ function buildJavaCode(fullCode: string): string {
             }
         }
         int target = Integer.parseInt(parts[1].trim());
-        
+
         Solution sol = new Solution();
         int[] result = sol.${methodName}(nums, target);
         System.out.println(Arrays.toString(result).replaceAll(", ", ","));
     }`;
-    
-    // Replace the entire main method
-    processedCode = processedCode.replace(
-      /public\s+static\s+void\s+main\s*\([^)]*\)\s*\{[\s\S]*?\}/,
-      newMainMethod
-    );
-  }
-  
-  // Handle other problem types
-  if (processedCode.includes('sol.isValid(') || processedCode.includes('sol.maxSubArray(') || 
-      processedCode.includes('sol.isPalindrome(') || processedCode.includes('sol.removeDuplicates(')) {
-    
-    console.log('🔧 Replacing hardcoded test cases for other problems...');
-    
-    // Replace hardcoded calls with input parsing
-    if (processedCode.includes('sol.isValid(')) {
-      // String input
-      const newMainMethod = `public static void main(String[] args) {
+  } else if (methodName === 'isValid') {
+    // Valid Parentheses: string
+    newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
         String s = sc.nextLine().trim().replaceAll("^\"|\"$", "");
         Solution sol = new Solution();
         boolean result = sol.${methodName}(s);
         System.out.println(result);
     }`;
-      processedCode = processedCode.replace(
-        /public\s+static\s+void\s+main\s*\([^)]*\)\s*\{[\s\S]*?\}/,
-        newMainMethod
-      );
-    } else if (processedCode.includes('sol.maxSubArray(') || processedCode.includes('sol.removeDuplicates(')) {
-      // Array input
-      const newMainMethod = `public static void main(String[] args) {
+  } else if (methodName === 'maxSubArray' || methodName === 'removeDuplicates') {
+    // Array problems: single array input
+    newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
         String line = sc.nextLine().trim();
         String arrStr = line.replace("[", "").replace("]", "").trim();
@@ -173,41 +157,38 @@ function buildJavaCode(fullCode: string): string {
         int result = sol.${methodName}(nums);
         System.out.println(result);
     }`;
-      processedCode = processedCode.replace(
-        /public\s+static\s+void\s+main\s*\([^)]*\)\s*\{[\s\S]*?\}/,
-        newMainMethod
-      );
-    } else if (processedCode.includes('sol.isPalindrome(')) {
-      // Integer input
-      const newMainMethod = `public static void main(String[] args) {
+  } else if (methodName === 'isPalindrome') {
+    // Integer input
+    newMainMethod = `public static void main(String[] args) {
         Scanner sc = new Scanner(System.in);
         int x = Integer.parseInt(sc.nextLine().trim());
         Solution sol = new Solution();
         boolean result = sol.${methodName}(x);
         System.out.println(result);
     }`;
-      processedCode = processedCode.replace(
-        /public\s+static\s+void\s+main\s*\([^)]*\)\s*\{[\s\S]*?\}/,
-        newMainMethod
-      );
-    }
+  } else {
+    // Default case
+    newMainMethod = `public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        String line = sc.nextLine().trim();
+        Solution sol = new Solution();
+        // Add your method call here
+    }`;
   }
   
-  // Ensure proper output formatting - only fix existing println statements, don't add new ones
-  if (processedCode.includes('System.out.println(')) {
-    processedCode = processedCode.replace(
-      /System\.out\.println\s*\(\s*([^)]+)\s*\)/g,
-      (match, content) => {
-        if (content.includes('Arrays.toString') && content.includes('result')) {
-          return `System.out.println(${content}.replaceAll(", ", ","))`;
-        }
-        return match;
-      }
-    );
-  }
+  // Build the complete code with the new main method
+  const finalCode = `import java.util.*;
+
+public class Main {
+${newMainMethod}
+}
+
+class Solution {
+${solutionContent}
+}`;
   
-  console.log('🔧 Final processed code:', processedCode);
-  return processedCode;
+  console.log('🔧 Final processed code:', finalCode);
+  return finalCode;
 }
 
 export async function runJava(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {

@@ -81,24 +81,28 @@ function buildCppCode(fullCode: string): string {
   const cleanUserCode = fullCode.trim();
   console.log('🧹 Cleaned user code:', cleanUserCode);
   
-  // The frontend already provides complete code, we just need to add input parsing
-  // and replace hardcoded test cases with dynamic input
+  // Extract method name from the Solution class
+  const solutionMethodMatch = cleanUserCode.match(/class Solution\s*\{[\s\S]*?public:[\s\S]*?(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
+  const methodName = solutionMethodMatch ? solutionMethodMatch[1] : 'twoSum';
+  console.log('🔧 Extracted method name from Solution class:', methodName);
   
-  let processedCode = cleanUserCode;
+  // Extract the Solution class content
+  const solutionMatch = cleanUserCode.match(/class Solution\s*\{([\s\S]*)\}/);
+  if (!solutionMatch) {
+    console.error('❌ Could not find Solution class in the code');
+    return cleanUserCode;
+  }
   
-  // Replace hardcoded test cases with input parsing
-  if (processedCode.includes('sol.twoSum({2, 7, 11, 15}, 9)') || 
-      processedCode.includes('sol.twoSum({3,2,4}, 6)') ||
-      processedCode.includes('sol.twoSum({3,3}, 6)')) {
-    
-    console.log('🔧 Replacing hardcoded test cases with input parsing...');
-    
-    // Extract method name from the code
-    const methodMatch = processedCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
-    const methodName = methodMatch ? methodMatch[1] : 'twoSum';
-    
-    // Replace the hardcoded main function with input parsing
-    const newMainFunction = `int main() {
+  const solutionContent = solutionMatch[1];
+  console.log('🔧 Extracted Solution class content');
+  
+  // Create a new main function with proper input parsing
+  let newMainFunction = '';
+  
+  // Determine the problem type based on method name
+  if (methodName === 'twoSum') {
+    // Two Sum: array + target
+    newMainFunction = `int main() {
     Solution sol;
     
     // Parse input from stdin
@@ -131,28 +135,9 @@ function buildCppCode(fullCode: string): string {
     cout << "]" << endl;
     return 0;
 }`;
-    
-    // Replace the entire main function
-    processedCode = processedCode.replace(
-      /int\s+main\s*\(\s*\)\s*\{[\s\S]*?\n\s*return\s+0\s*;\s*\n\s*\}/,
-      newMainFunction
-    );
-  }
-  
-  // Handle other problem types
-  if (processedCode.includes('sol.isValid(') || processedCode.includes('sol.maxSubArray(') || 
-      processedCode.includes('sol.isPalindrome(') || processedCode.includes('sol.removeDuplicates(')) {
-    
-    console.log('🔧 Replacing hardcoded test cases for other problems...');
-    
-    // Extract method name
-    const methodMatch = processedCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
-    const methodName = methodMatch ? methodMatch[1] : 'solve';
-    
-    // Replace hardcoded calls with input parsing
-    if (processedCode.includes('sol.isValid(')) {
-      // String input
-      const newMainFunction = `int main() {
+  } else if (methodName === 'isValid') {
+    // Valid Parentheses: string
+    newMainFunction = `int main() {
     Solution sol;
     string s;
     getline(cin, s);
@@ -161,13 +146,9 @@ function buildCppCode(fullCode: string): string {
     cout << (result ? "true" : "false") << endl;
     return 0;
 }`;
-      processedCode = processedCode.replace(
-        /int\s+main\s*\(\s*\)\s*\{[\s\S]*?\n\s*return\s+0\s*;\s*\n\s*\}/,
-        newMainFunction
-      );
-    } else if (processedCode.includes('sol.maxSubArray(') || processedCode.includes('sol.removeDuplicates(')) {
-      // Array input
-      const newMainFunction = `int main() {
+  } else if (methodName === 'maxSubArray' || methodName === 'removeDuplicates') {
+    // Array problems: single array input
+    newMainFunction = `int main() {
     Solution sol;
     string line;
     getline(cin, line);
@@ -189,13 +170,9 @@ function buildCppCode(fullCode: string): string {
     cout << result << endl;
     return 0;
 }`;
-      processedCode = processedCode.replace(
-        /int\s+main\s*\(\s*\)\s*\{[\s\S]*?\n\s*return\s+0\s*;\s*\n\s*\}/,
-        newMainFunction
-      );
-    } else if (processedCode.includes('sol.isPalindrome(')) {
-      // Integer input
-      const newMainFunction = `int main() {
+  } else if (methodName === 'isPalindrome') {
+    // Integer input
+    newMainFunction = `int main() {
     Solution sol;
     int x;
     cin >> x;
@@ -203,23 +180,33 @@ function buildCppCode(fullCode: string): string {
     cout << (result ? "true" : "false") << endl;
     return 0;
 }`;
-      processedCode = processedCode.replace(
-        /int\s+main\s*\(\s*\)\s*\{[\s\S]*?\n\s*return\s+0\s*;\s*\n\s*\}/,
-        newMainFunction
-      );
-    }
+  } else {
+    // Default case
+    newMainFunction = `int main() {
+    Solution sol;
+    string line;
+    getline(cin, line);
+    // Add your method call here
+    return 0;
+}`;
   }
   
-  // Ensure proper output formatting
-  if (processedCode.includes('cout <<')) {
-    processedCode = processedCode.replace(
-      /for\s*\(\s*int\s+[a-zA-Z_][a-zA-Z0-9_]*\s*:\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\)\s*cout\s*<<\s*[a-zA-Z_][a-zA-Z0-9_]*\s*<<\s*[""][^""]*[""]\s*;/g,
-      'cout << "[" << result[0]; for (size_t i = 1; i < result.size(); ++i) { cout << "," << result[i]; } cout << "]" << endl;'
-    );
-  }
+  // Build the complete code
+  const finalCode = `#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <unordered_map>
+using namespace std;
+
+class Solution {
+${solutionContent}
+};
+
+${newMainFunction}`;
   
-  console.log('🔧 Final processed code:', processedCode);
-  return processedCode;
+  console.log('🔧 Final processed code:', finalCode);
+  return finalCode;
 }
 
 export async function runCpp(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
