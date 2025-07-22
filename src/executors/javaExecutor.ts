@@ -194,7 +194,7 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       '                cleanInput = cleanInput.substring(1, cleanInput.length() - 1);',
       '            }',
       '            System.out.println("DEBUG: cleanInput = " + cleanInput);',
-      '            System.out.println("DEBUG: cleanInput.length() = " + cleanInput.length());',
+      '            System.out.println("DEBUG: cleanInput.length() = " + cleanInput.length);',
       '            System.out.println("DEBUG: cleanInput.startsWith(\"[\\\") = " + cleanInput.startsWith("["));',
       '            System.out.println("DEBUG: cleanInput.endsWith(\"\\]\") = " + cleanInput.endsWith("]"));',
       '            System.out.println("DEBUG: cleanInput.length() > 2 = " + (cleanInput.length() > 2));',
@@ -207,10 +207,10 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       '                // For String parameters, use the clean input directly',
       '                parsedInput = cleanInput;',
       '                System.out.println("DEBUG: String parameter detected, parsedInput = " + parsedInput);',
-      '            } else if (cleanInput.startsWith("[") && cleanInput.endsWith("]") && cleanInput.length() > 2) {',
+      '            } else if (cleanInput.startsWith("[") && cleanInput.endsWith("]") && cleanInput.length > 2) {',
       '                System.out.println("DEBUG: Array input detected");',
       '                // Parse array/list input - only if it\'s actually an array (not just brackets)',
-      '                String arrayContent = cleanInput.substring(1, cleanInput.length() - 1);',
+      '                String arrayContent = cleanInput.substring(1, cleanInput.length - 1);',
       '                System.out.println("DEBUG: arrayContent = " + arrayContent);',
       '                if (arrayContent.isEmpty()) {',
       '                    System.out.println("DEBUG: Empty array detected");',
@@ -388,7 +388,7 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       '                // Boolean input',
       '                parsedInput = Boolean.parseBoolean(cleanInput);',
       '                System.out.println("DEBUG: parsedInput = " + parsedInput);',
-      '            } else if (cleanInput.length() == 1) {',
+      '            } else if (cleanInput.length == 1) {',
       '                System.out.println("DEBUG: Single character input detected");',
       '                // Single character',
       '                parsedInput = cleanInput.charAt(0);',
@@ -435,7 +435,7 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       '            Object result;',
       '            System.out.println("DEBUG: About to call method with paramType: " + paramType);',
       '            if (paramType.equals("String")) {',
-      `                result = solution.${methodName}((String) parsedInput);b`,
+      `                result = solution.${methodName}((String) parsedInput);`,
       '                System.out.println("DEBUG: Called with String cast");',
       '            } else if (paramType.equals("int[]")) {',
       `                result = solution.${methodName}((int[]) parsedInput);`,
@@ -519,7 +519,7 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       // Simulate the cleanInput logic
       let cleanInput = firstInput;
       if (cleanInput.startsWith('"') && cleanInput.endsWith('"')) {
-        cleanInput = cleanInput.substring(1, cleanInput.length() - 1);
+        cleanInput = cleanInput.substring(1, cleanInput.length - 1);
       }
       console.log('🔍 [JAVA] DEBUG: After quote removal:', cleanInput);
       console.log('🔍 [JAVA] DEBUG: Clean input starts with [:', cleanInput.startsWith('['));
