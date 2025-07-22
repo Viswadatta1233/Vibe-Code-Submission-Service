@@ -202,8 +202,11 @@ int main() {
       const input = testCase.input;
       const expectedOutput = testCase.output;
       
-      // Create the run command
-      const runCommand = `echo '${fullCode.replace(/'/g, '\\"')}' > main.cpp && g++ -std=c++17 -O2 -o main main.cpp && echo '${input.replace(/'/g, '\\"')}' | ./main`;
+      // Create the run command using heredoc to avoid escaping issues
+      const runCommand = `cat > main.cpp << 'EOF'
+${fullCode}
+EOF
+g++ -std=c++17 -O2 -o main main.cpp && echo '${input}' | ./main`;
       
       console.log('🔧 [CPP] Run command length:', runCommand.length);
       

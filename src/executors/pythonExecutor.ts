@@ -169,8 +169,11 @@ if __name__ == "__main__":
       const input = testCase.input;
       const expectedOutput = testCase.output;
       
-      // Create the run command
-      const runCommand = `echo '${fullCode.replace(/'/g, '\\"')}' > main.py && echo '${input.replace(/'/g, '\\"')}' | python main.py`;
+      // Create the run command using heredoc to avoid escaping issues
+      const runCommand = `cat > main.py << 'EOF'
+${fullCode}
+EOF
+echo '${input}' | python main.py`;
       
       console.log('🔧 [PYTHON] Run command length:', runCommand.length);
       

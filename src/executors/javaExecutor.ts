@@ -180,8 +180,11 @@ public class Main {
       const input = testCase.input;
       const expectedOutput = testCase.output;
       
-      // Create the run command
-      const runCommand = `echo '${fullCode.replace(/'/g, '\\"')}' > Main.java && javac Main.java && echo '${input.replace(/'/g, '\\"')}' | java Main`;
+      // Create the run command using heredoc to avoid escaping issues
+      const runCommand = `cat > Main.java << 'EOF'
+${fullCode}
+EOF
+javac Main.java && echo '${input}' | java Main`;
       
       console.log('🔧 [JAVA] Run command length:', runCommand.length);
       
