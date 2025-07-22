@@ -131,72 +131,74 @@ export async function runCpp(problem: Problem, userCode: string): Promise<Execut
     console.log('🔍 [CPP] Extracted method name:', methodName);
     
     // Build the complete C++ program
-    const fullCode = `#include <iostream>
-#include <vector>
-#include <string>
-#include <algorithm>
-#include <unordered_map>
-#include <unordered_set>
-#include <queue>
-#include <stack>
-#include <map>
-#include <set>
-#include <cmath>
-#include <climits>
-#include <cstring>
-#include <sstream>
-#include <fstream>
-#include <iomanip>
-#include <numeric>
-#include <functional>
-#include <bitset>
-#include <deque>
-#include <list>
-#include <array>
-#include <tuple>
-#include <utility>
-#include <memory>
-#include <chrono>
-#include <random>
-#include <cassert>
-#include <cctype>
-#include <cstdlib>
-#include <cstdio>
-#include <cstring>
-#include <ctime>
-#include <cwchar>
-#include <cwctype>
-
-using namespace std;
-
-class Solution {
-    ${solutionContent}
-};
-
-int main() {
-    // Read input from stdin
-    string input;
-    getline(cin, input);
-    
-    // Create solution instance
-    Solution solution;
-    
-            // Execute and print result
-        try {
-            // Remove quotes from input if present
-            string cleanInput = input;
-            if (input.length() >= 2 && input[0] == '"' && input[input.length()-1] == '"') {
-                cleanInput = input.substr(1, input.length() - 2);
-            }
-            
-            auto result = solution.${methodName}(cleanInput);
-            cout << result << endl;
-        } catch (const exception& e) {
-            cerr << "Error: " << e.what() << endl;
-        }
-    
-    return 0;
-}`;
+    const fullCode = [
+      '#include <iostream>',
+      '#include <vector>',
+      '#include <string>',
+      '#include <algorithm>',
+      '#include <unordered_map>',
+      '#include <unordered_set>',
+      '#include <queue>',
+      '#include <stack>',
+      '#include <map>',
+      '#include <set>',
+      '#include <cmath>',
+      '#include <climits>',
+      '#include <cstring>',
+      '#include <sstream>',
+      '#include <fstream>',
+      '#include <iomanip>',
+      '#include <numeric>',
+      '#include <functional>',
+      '#include <bitset>',
+      '#include <deque>',
+      '#include <list>',
+      '#include <array>',
+      '#include <tuple>',
+      '#include <utility>',
+      '#include <memory>',
+      '#include <chrono>',
+      '#include <random>',
+      '#include <cassert>',
+      '#include <cctype>',
+      '#include <cstdlib>',
+      '#include <cstdio>',
+      '#include <cstring>',
+      '#include <ctime>',
+      '#include <cwchar>',
+      '#include <cwctype>',
+      '',
+      'using namespace std;',
+      '',
+      'class Solution {',
+      `    ${solutionContent}`,
+      '};',
+      '',
+      'int main() {',
+      '    // Read input from stdin',
+      '    string input;',
+      '    getline(cin, input);',
+      '',
+      '    // Create solution instance',
+      '    Solution solution;',
+      '',
+      '    // Execute and print result',
+      '    try {',
+      '        // Remove quotes from input if present',
+      '        string cleanInput = input;',
+      '        if (input.length() >= 2 && input[0] == \'"\' && input[input.length()-1] == \'"\') {',
+      '            cleanInput = input.substr(1, input.length() - 2);',
+      '        }',
+      '',
+      `        auto result = solution.${methodName}(cleanInput);`,
+      '        cout << result << endl;',
+      '    } catch (const exception& e) {',
+      '        cerr << "Error: " << e.what() << endl;',
+      '    }',
+      '',
+      '    return 0;',
+      '}'
+    ].join('\n');
   
     console.log('📝 [CPP] Generated code length:', fullCode.length);
     

@@ -131,38 +131,40 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
     console.log('🔍 [PYTHON] Extracted method name:', methodName);
     
     // Build the complete Python program
-    const fullCode = `# Common imports for coding problems
-import sys
-import os
-from typing import *
-from collections import *
-import math
-import heapq
-
-class Solution:
-    ${solutionContent}
-
-def main():
-    # Read input from stdin
-    input_data = input().strip()
-    
-    # Create solution instance
-    solution = Solution()
-    
-            # Execute and print result
-        try:
-            # Remove quotes from input if present
-            clean_input = input_data
-            if input_data.startswith('"') and input_data.endswith('"'):
-                clean_input = input_data[1:-1]
-            
-            result = solution.${methodName}(clean_input)
-            print(result)
-        except Exception as e:
-            print(f"Error: {e}", file=sys.stderr)
-
-if __name__ == "__main__":
-    main()`;
+    const fullCode = [
+      '# Common imports for coding problems',
+      'import sys',
+      'import os',
+      'from typing import *',
+      'from collections import *',
+      'import math',
+      'import heapq',
+      '',
+      'class Solution:',
+      `    ${solutionContent}`,
+      '',
+      'def main():',
+      '    # Read input from stdin',
+      '    input_data = input().strip()',
+      '',
+      '    # Create solution instance',
+      '    solution = Solution()',
+      '',
+      '    # Execute and print result',
+      '    try:',
+      '        # Remove quotes from input if present',
+      '        clean_input = input_data',
+      '        if input_data.startswith(\'"\') and input_data.endswith(\'"\'):',
+      '            clean_input = input_data[1:-1]',
+      '',
+      `        result = solution.${methodName}(clean_input)`,
+      '        print(result)',
+      '    except Exception as e:',
+      '        print(f"Error: {e}", file=sys.stderr)',
+      '',
+      'if __name__ == "__main__":',
+      '    main()'
+    ].join('\n');
 
     console.log('📝 [PYTHON] Generated code length:', fullCode.length);
     

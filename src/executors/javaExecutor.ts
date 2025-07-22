@@ -131,50 +131,52 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
     console.log('🔍 [JAVA] Extracted method name:', methodName);
     
     // Build the complete Java program
-    const fullCode = `import java.util.*;
-import java.util.Stack;
-import java.util.Queue;
-import java.util.LinkedList;
-import java.util.PriorityQueue;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-public class Main {
-    public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
-        
-        // Read input
-        String input = scanner.nextLine();
-        scanner.close();
-        
-        // Create solution instance
-        Solution solution = new Solution();
-        
-        // Execute and print result
-        try {
-            // Remove quotes from input if present
-            String cleanInput = input;
-            if (input.startsWith("\"") && input.endsWith("\"")) {
-                cleanInput = input.substring(1, input.length() - 1);
-            }
-            
-            // Call the solution method with cleaned input
-            Object result = solution.${methodName}(cleanInput);
-            System.out.println(result);
-        } catch (Exception e) {
-            System.err.println("Error: " + e.getMessage());
-        }
-    }
-    
-    static class Solution {
-        ${solutionContent}
-    }
-}`;
+    const fullCode = [
+      'import java.util.*;',
+      'import java.util.Stack;',
+      'import java.util.Queue;',
+      'import java.util.LinkedList;',
+      'import java.util.PriorityQueue;',
+      'import java.util.HashMap;',
+      'import java.util.HashSet;',
+      'import java.util.ArrayList;',
+      'import java.util.Arrays;',
+      'import java.util.List;',
+      'import java.util.Map;',
+      'import java.util.Set;',
+      '',
+      'public class Main {',
+      '    public static void main(String[] args) {',
+      '        Scanner scanner = new Scanner(System.in);',
+      '',
+      '        // Read input',
+      '        String input = scanner.nextLine();',
+      '        scanner.close();',
+      '',
+      '        // Create solution instance',
+      '        Solution solution = new Solution();',
+      '',
+      '        // Execute and print result',
+      '        try {',
+      '            // Remove quotes from input if present',
+      '            String cleanInput = input;',
+      '            if (input.startsWith("\\"") && input.endsWith("\\"")) {',
+      '                cleanInput = input.substring(1, input.length() - 1);',
+      '            }',
+      '',
+      '            // Call the solution method with cleaned input',
+      `            Object result = solution.${methodName}(cleanInput);`,
+      '            System.out.println(result);',
+      '        } catch (Exception e) {',
+      '            System.err.println("Error: " + e.getMessage());',
+      '        }',
+      '    }',
+      '',
+      '    static class Solution {',
+      `        ${solutionContent}`,
+      '    }',
+      '}'
+    ].join('\n');
 
     console.log('📝 [JAVA] Generated code length:', fullCode.length);
     
