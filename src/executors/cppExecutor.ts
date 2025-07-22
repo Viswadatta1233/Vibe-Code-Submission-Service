@@ -1,409 +1,270 @@
 import Docker from 'dockerode';
-import { writeFile } from 'fs-extra';
-import { dir } from 'tmp-promise';
+import { writeFile, unlink } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
-export const PYTHON_IMAGE = 'python:3.8-slim';
-export const JAVA_IMAGE = 'openjdk:17-slim';
-export const CPP_IMAGE = 'gcc:latest';
+interface TestCase {
+  input: string;
+  output: string;
+}
 
-// Function to properly demultiplex Docker logs
-function demultiplexDockerLogs(buffer: Buffer): { stdout: string, stderr: string } {
+interface CodeStub {
+  language: string;
+  startSnippet: string;
+  userSnippet: string;
+  endSnippet: string;
+}
+
+interface Problem {
+  title: string;
+  testcases: TestCase[];
+  codeStubs: CodeStub[];
+}
+
+// Docker output stream demultiplexer
+function demultiplexDockerLogs(buffer: Buffer): { stdout: string; stderr: string } {
   let stdout = '';
   let stderr = '';
+
   let offset = 0;
-  
   while (offset < buffer.length) {
     if (offset + 8 > buffer.length) break;
-    
-    // Read the header
-    const streamType = buffer[offset];
-    const size = buffer.readUInt32BE(offset + 4);
-    
-    if (offset + 8 + size > buffer.length) break;
-    
-    // Extract the payload
-    const payload = buffer.slice(offset + 8, offset + 8 + size).toString();
-    
-    // Stream type: 1 = stdout, 2 = stderr
+
+    // Read the 8-byte header
+    const header = buffer.slice(offset, offset + 8);
+    const streamType = header[0];
+    const payloadSize = header.readUInt32BE(4);
+
+    offset += 8;
+
+    if (offset + payloadSize > buffer.length) break;
+
+    // Read the payload
+    const payload = buffer.slice(offset, offset + payloadSize);
+    const payloadString = payload.toString('utf8');
+
+    // Route to appropriate stream
     if (streamType === 1) {
-      stdout += payload;
+      stdout += payloadString;
     } else if (streamType === 2) {
-      stderr += payload;
+      stderr += payloadString;
     }
-    
-    offset += 8 + size;
+
+    offset += payloadSize;
   }
-  
-  return { stdout: stdout.trim(), stderr: stderr.trim() };
+
+  return { stdout, stderr };
 }
 
-// Test function to verify regex patterns
-function testCppRegexPatterns() {
-  const testCode = `int maxSubArray(std::vector<int>& nums) {
-       int maxSoFar = nums[0];
-    int currentMax = nums[0];
+export class CppExecutor {
+  private problem: Problem;
+  private userCode: string;
 
-    for (size_t i = 1; i < nums.size(); ++i) {
-        currentMax = std::max(nums[i], currentMax + nums[i]);
-        maxSoFar = std::max(maxSoFar, currentMax);
-    }
-
-    return maxSoFar;
-    }`;
-  
-  console.log('🧪 Testing C++ regex patterns with:', testCode);
-  
-  // Test method name extraction
-  const methodMatch = testCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
-  console.log('🧪 Method name match:', methodMatch);
-  
-  // Test method signature extraction
-  const methodSignatureMatch = testCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+\w+\s*\(([^)]*)\)/);
-  console.log('🧪 Method signature match:', methodSignatureMatch);
-  
-  // Test parameter detection
-  const methodParams = methodSignatureMatch ? methodSignatureMatch[1].trim() : '';
-  console.log('🧪 Method params:', methodParams);
-  
-  const hasVectorParam = /(?:std::)?vector<.*>/.test(methodParams);
-  const hasIntParam = /\bint\s+\w+/.test(methodParams) && !/int\[\]/.test(methodParams);
-  
-  console.log('🧪 hasVectorParam:', hasVectorParam);
-  console.log('🧪 hasIntParam:', hasIntParam);
-  console.log('🧪 Combined condition (hasVectorParam && hasIntParam):', hasVectorParam && hasIntParam);
-}
-
-// C++ code template for user submissions
-function buildCppCode(fullCode: string): string {
-  console.log('🔧 Building C++ code with input:', fullCode);
-  const cleanUserCode = fullCode.trim();
-  console.log('🧹 Cleaned user code:', cleanUserCode);
-
-  // Try to extract the Solution class
-  let solutionMatch = cleanUserCode.match(/class Solution\s*\{([\s\S]*?)\};\s*(?=int main|$)/);
-  let solutionContent = '';
-  let isClass = false;
-  if (solutionMatch) {
-    solutionContent = solutionMatch[1].trim();
-    isClass = true;
-    console.log('🔧 Found Solution class.');
-  } else {
-    // Try to detect if it's just a method (e.g., 'vector<int> twoSum(...)')
-    const methodMatch = cleanUserCode.match(/^(?:[a-zA-Z_][\w<>:]*)\s+[a-zA-Z_][\w]*\s*\([\s\S]*\)\s*\{/m);
-    if (methodMatch) {
-      solutionContent = cleanUserCode;
-      isClass = false;
-      console.log('🔧 No Solution class found, but found a method. Wrapping in class Solution.');
-    } else {
-      // Fallback: return as is
-      console.error('❌ Could not find Solution class or method in the code');
-      return cleanUserCode;
-    }
+  constructor(problem: Problem, userCode: string) {
+    this.problem = problem;
+    this.userCode = userCode;
   }
-  
-  // Extract method name from the Solution class
-  const methodName = isClass ? 
-    cleanUserCode.match(/class Solution\s*\{[\s\S]*?public:[\s\S]*?(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/)?.[1] : 
-    cleanUserCode.match(/^(?:[a-zA-Z_][\w<>:]*)\s+([a-zA-Z_][\w]*)\s*\(/)?.[1];
-  console.log('🔧 Extracted method name from Solution class:', methodName);
-  
-  // Create a new main function with proper input parsing
-  let newMainFunction = '';
-  
-  // Determine the problem type based on method name
-  if (methodName === 'twoSum') {
-    // Two Sum: array + target
-    newMainFunction = `int main() {
-    Solution sol;
-    
-    // Parse input from stdin
-    string line;
-    getline(cin, line);
-    
-    // Parse input: "[2,7,11,15],9" -> vector<int> and int
-    size_t commaPos = line.find_last_of(',');
-    string arrStr = line.substr(1, commaPos - 1);
-    int target = stoi(line.substr(commaPos + 1));
-    
-    // Parse array
-    vector<int> nums;
-    if (!arrStr.empty()) {
-        size_t start = 0;
-        size_t end = arrStr.find(',');
-        while (end != string::npos) {
-            nums.push_back(stoi(arrStr.substr(start, end - start)));
-            start = end + 1;
-            end = arrStr.find(',', start);
-        }
-        nums.push_back(stoi(arrStr.substr(start)));
+
+  // Generate complete C++ code with test runner
+  generateCode(): string {
+    const stub = this.problem.codeStubs.find(s => s.language === 'CPP');
+    if (!stub) {
+      throw new Error('No C++ code stub found for this problem');
     }
+
+    // Build the complete code structure
+    const fullCode = stub.startSnippet + '\n' + this.userCode + '\n' + stub.endSnippet;
     
-    vector<int> result = sol.${methodName}(nums, target);
-    cout << "[" << result[0];
-    for (size_t i = 1; i < result.size(); ++i) {
-        cout << "," << result[i];
-    }
-    cout << "]" << endl;
-    return 0;
-}`;
-  } else if (methodName === 'isValid') {
-    // Valid Parentheses: string
-    newMainFunction = `int main() {
-    Solution sol;
-    string s;
-    getline(cin, s);
-    s = s.substr(1, s.length() - 2); // Remove quotes
-    bool result = sol.${methodName}(s);
-    cout << (result ? "true" : "false") << endl;
-    return 0;
-}`;
-  } else if (methodName === 'maxSubArray' || methodName === 'removeDuplicates') {
-    // Array problems: single array input
-    newMainFunction = `int main() {
-    Solution sol;
-    string line;
-    getline(cin, line);
-    string arrStr = line.substr(1, line.length() - 2); // Remove [ and ]
+    // Generate test runner
+    const testRunner = this.generateTestRunner();
     
-    vector<int> nums;
-    if (!arrStr.empty()) {
-        size_t start = 0;
-        size_t end = arrStr.find(',');
-        while (end != string::npos) {
-            nums.push_back(stoi(arrStr.substr(start, end - start)));
-            start = end + 1;
-            end = arrStr.find(',', start);
-        }
-        nums.push_back(stoi(arrStr.substr(start)));
-    }
-    
-    int result = sol.${methodName}(nums);
-    cout << result << endl;
-    return 0;
-}`;
-  } else if (methodName === 'isPalindrome') {
-    // Integer input
-    newMainFunction = `int main() {
+    return fullCode + '\n\n' + testRunner;
+  }
+
+  private generateTestRunner(): string {
+    const methodName = this.extractMethodName();
+    const testCases = this.problem.testcases.map((tc, index) => {
+      return `    // Test case ${index + 1}
+    auto test_input = ${tc.input};
+    auto expected_output = ${tc.output};
+    auto result = sol.${methodName}(test_input);
+    std::cout << "TEST_${index + 1}:" << result << std::endl;`;
+    }).join('\n');
+
+    return `int main() {
     Solution sol;
-    int x;
-    cin >> x;
-    bool result = sol.${methodName}(x);
-    cout << (result ? "true" : "false") << endl;
-    return 0;
-}`;
-  } else {
-    // Default case
-    newMainFunction = `int main() {
-    Solution sol;
-    string line;
-    getline(cin, line);
-    // Add your method call here
+${testCases}
     return 0;
 }`;
   }
-  
-  // Build the complete code - only include the Solution class and new main function
-  const finalCode = `#include <iostream>
-#include <vector>
-#include <string>
-#include <algorithm>
-#include <unordered_map>
-using namespace std;
 
-class Solution {
-${solutionContent}
-};
+  private extractMethodName(): string {
+    const stub = this.problem.codeStubs.find(s => s.language === 'CPP');
+    if (!stub) return 'solve';
 
-${newMainFunction}`;
-  
-  console.log('🔧 Final processed code:', finalCode);
-  return finalCode;
+    const methodMatch = stub.userSnippet.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
+    return methodMatch ? methodMatch[1] : 'solve';
+  }
 }
 
-export async function runCpp(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
-  console.log('🚀 Starting C++ execution...');
-  console.log('📥 Input code:', fullCode);
-  console.log('📥 Input data:', input);
-  
-  // Use the direct method as primary approach since volume mounting is unreliable
-  console.log('🔄 Using direct file creation method as primary approach...');
-  return await runCppDirect(fullCode, input);
-}
+// Main execution function using Docker
+export async function runCpp(
+  problem: Problem,
+  userCode: string
+): Promise<{ stdout: string; stderr: string }> {
+  console.log('🚀 [CPP-DOCKER] Starting C++ execution with Docker...');
+  console.log('📥 Problem:', problem.title);
+  console.log('📥 User code length:', userCode.length);
 
-// Alternative approach using exec instead of logs
-export async function runCppAlternative(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
-  console.log('🔄 Using alternative C++ execution method...');
   const docker = new Docker();
-  const { path, cleanup } = await dir({ unsafeCleanup: true });
-  const codeToRun = buildCppCode(fullCode);
-  const filePath = `${path}/main.cpp`;
-    await writeFile(filePath, codeToRun);
-  let container: any = null;
-  
+  const executor = new CppExecutor(problem, userCode);
+  const fullCode = executor.generateCode();
+
+  console.log('🔧 Generated C++ code:', fullCode);
+
+  const filename = `solution_${Date.now()}.cpp`;
+  const filepath = join(tmpdir(), filename);
+  const containerName = `cpp-exec-${Date.now()}`;
+
   try {
-    await docker.pull(CPP_IMAGE);
-    
-    container = await docker.createContainer({
-      Image: CPP_IMAGE,
-      Cmd: ['sleep', '30'], // Keep container alive
-      HostConfig: { 
-        Binds: [`${path}:/usr/src/app:ro`], 
-        AutoRemove: false 
+    // Write code to temporary file
+    await writeFile(filepath, fullCode);
+    console.log('📝 [CPP-DOCKER] Code written to:', filepath);
+
+    // Pull C++ image if not exists
+    console.log('📦 [CPP-DOCKER] Pulling C++ image...');
+    await docker.pull('gcc:11-slim');
+
+    // Create container
+    console.log('🐳 [CPP-DOCKER] Creating container...');
+    const container = await docker.createContainer({
+      Image: 'gcc:11-slim',
+      name: containerName,
+      Cmd: ['sh', '-c', `cd /tmp && g++ -std=c++17 -o solution ${filename} && ./solution`],
+      HostConfig: {
+        Memory: 512 * 1024 * 1024, // 512MB limit
+        MemorySwap: 512 * 1024 * 1024,
+        CpuPeriod: 100000,
+        CpuQuota: 50000, // 50% CPU limit
+        NetworkMode: 'none', // No network access
+        Binds: [`${filepath}:/tmp/${filename}:ro`], // Read-only mount
+        AutoRemove: true,
+        SecurityOpt: ['no-new-privileges'],
+        CapDrop: ['ALL']
       },
-      WorkingDir: '/usr/src/app',
-      Tty: false,
-      OpenStdin: false
+      WorkingDir: '/tmp'
     });
-    
+
+    console.log('✅ [CPP-DOCKER] Container created:', container.id);
+
+    // Start container and get logs
+    console.log('▶️ [CPP-DOCKER] Starting container...');
     await container.start();
-    
-    // Execute compilation
-    const compileExec = await container.exec({
-      Cmd: ['g++', 'main.cpp', '-o', 'main'],
-      AttachStdout: true,
-      AttachStderr: true
+
+    // Get logs with real-time streaming
+    const logStream = await container.logs({
+      follow: true,
+      stdout: true,
+      stderr: true,
+      tail: 'all'
     });
-    
-    const compileStream = await compileExec.start({ Detach: false });
-    let compileOutput = '';
-    
-    compileStream.on('data', (chunk: Buffer) => {
-      compileOutput += chunk.toString();
-    });
-    
-    await new Promise(resolve => compileStream.on('end', resolve));
-    
-    if (compileOutput.includes('error:')) {
-      await container.kill();
-      await cleanup();
-      return { stdout: '', stderr: compileOutput };
-    }
-    
-    // Execute the program
-    const runExec = await container.exec({
-      Cmd: ['sh', '-c', `echo "${input}" | ./main`],
-      AttachStdout: true,
-      AttachStderr: true
-    });
-    
-    const runStream = await runExec.start({ Detach: false });
+
     let stdout = '';
     let stderr = '';
-    
-    runStream.on('data', (chunk: Buffer) => {
-      const output = chunk.toString();
-      if (output.includes('Exception') || output.includes('Error')) {
-        stderr += output;
-      } else {
-        stdout += output;
-      }
-    });
-    
-    await new Promise(resolve => runStream.on('end', resolve));
-    
-    return { 
-      stdout: stdout.trim(), 
-      stderr: stderr.trim() 
-    };
-    
-  } catch (err: any) {
-    console.error('Alternative C++ execution failed:', err);
-    
-    // Try third approach - create file directly in container
-    console.log('🔄 Trying third approach - direct file creation...');
-    return await runCppDirect(fullCode, input);
-  } finally {
-    if (container) {
-      try {
-        // Check if container is still running before trying to kill it
-        const containerInfo = await container.inspect();
-        if (containerInfo.State.Running) {
-          await container.kill();
-        }
-        await container.remove();
-      } catch (e) {
-        console.error('Failed to cleanup alternative container:', e);
-      }
-    }
-    await cleanup();
-  }
-}
+    let logsBuffer = Buffer.alloc(0);
 
-// Third approach: Create file directly inside container
-export async function runCppDirect(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
-  console.log('🔄 Using direct file creation method...');
-  const docker = new Docker();
-  const codeToRun = buildCppCode(fullCode);
-  let container: any = null;
-  
-  try {
-    // Use gcc:latest directly since it's available and has GCC pre-installed
-    const selectedImage = 'gcc:latest';
-    console.log(`🚀 Using image: ${selectedImage}`);
-    
-    // Use a safer approach with base64 encoding to avoid shell escaping issues
-    const codeToRunBase64 = Buffer.from(codeToRun).toString('base64');
-    const inputBase64 = Buffer.from(input).toString('base64');
-    
-        const container = await docker.createContainer({
-      Image: selectedImage,
-      Cmd: ['sh', '-c', `
-        echo '${codeToRunBase64}' | base64 -d > main.cpp
-        g++ main.cpp -o main
-        echo '${inputBase64}' | base64 -d | ./main
-      `],
-          HostConfig: { 
-        AutoRemove: false,
-        Memory: 512 * 1024 * 1024,
-            CpuPeriod: 100000,
-        CpuQuota: 50000,
-        NetworkMode: 'none', // No network needed since GCC is pre-installed
-          },
-          Tty: false,
-          OpenStdin: true,
-          StdinOnce: false,
-        });
-        
-        await container.start();
-        
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Container execution timeout (30s)')), 30000);
-        });
-        
-        const waitPromise = container.wait();
-        const result = await Promise.race([waitPromise, timeoutPromise]) as any;
-        
-        const logs = await container.logs({
-          stdout: true,
-          stderr: true,
-          tail: 1000
-        });
-        
-    const { stdout, stderr } = demultiplexDockerLogs(Buffer.from(logs));
-    
-        await container.remove();
-    
-    console.log('✅ [DIRECT] C++ execution completed successfully');
-    console.log('📤 [DIRECT] stdout:', stdout);
-    console.log('📤 [DIRECT] stderr:', stderr);
-    
-    return { stdout, stderr };
-    
-  } catch (err: any) {
-    console.error('❌ [DIRECT] Direct C++ execution failed:', err);
-    return { stdout: '', stderr: err.message || 'Direct execution failed' };
-  } finally {
-    if (container) {
-      try {
-        // Check if container is still running before trying to kill it
-        const containerInfo = await container.inspect();
-        if (containerInfo.State.Running) {
-          await container.kill();
-        }
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(async () => {
+        console.log('⏰ [CPP-DOCKER] Execution timeout, stopping container...');
+        try {
+          await container.stop({ t: 0 });
           await container.remove();
-      } catch (e) {
-        console.error('Failed to cleanup direct container:', e);
-      }
+        } catch (error) {
+          console.error('❌ [CPP-DOCKER] Error stopping container:', error);
+        }
+        resolve({ stdout, stderr: stderr || 'Execution timeout' });
+      }, 10000);
+
+      logStream.on('data', (chunk: Buffer) => {
+        console.log('📤 [CPP-DOCKER] Raw log chunk received, size:', chunk.length);
+        
+        // Accumulate buffer
+        logsBuffer = Buffer.concat([logsBuffer, chunk]);
+        
+        // Try to demultiplex if we have enough data
+        if (logsBuffer.length >= 8) {
+          try {
+            const demuxed = demultiplexDockerLogs(logsBuffer);
+            stdout += demuxed.stdout;
+            stderr += demuxed.stderr;
+            
+            // Log real-time output
+            if (demuxed.stdout) {
+              console.log('📤 [CPP-DOCKER] STDOUT:', demuxed.stdout.trim());
+            }
+            if (demuxed.stderr) {
+              console.log('❌ [CPP-DOCKER] STDERR:', demuxed.stderr.trim());
+            }
+          } catch (error) {
+            console.error('❌ [CPP-DOCKER] Error demultiplexing logs:', error);
+          }
+        }
+      });
+
+      logStream.on('end', async () => {
+        console.log('🏁 [CPP-DOCKER] Log stream ended');
+        clearTimeout(timeout);
+        
+        try {
+          // Get final container state
+          const containerData = await container.inspect();
+          const exitCode = containerData.State.ExitCode;
+          
+          console.log('📊 [CPP-DOCKER] Container exit code:', exitCode);
+          
+          // Clean up
+          await container.remove();
+          await unlink(filepath).catch(console.error);
+          
+          if (exitCode !== 0 && !stderr) {
+            stderr = `Container exited with code ${exitCode}`;
+          }
+          
+          resolve({ stdout, stderr });
+        } catch (error) {
+          console.error('❌ [CPP-DOCKER] Error in cleanup:', error);
+          resolve({ stdout, stderr: stderr || 'Container execution failed' });
+        }
+      });
+
+      logStream.on('error', async (error: any) => {
+        console.error('❌ [CPP-DOCKER] Log stream error:', error);
+        clearTimeout(timeout);
+        
+        try {
+          await container.stop({ t: 0 });
+          await container.remove();
+        } catch (cleanupError) {
+          console.error('❌ [CPP-DOCKER] Error stopping container:', cleanupError);
+        }
+        
+        reject(error);
+      });
+    });
+
+  } catch (error) {
+    console.error('❌ [CPP-DOCKER] Execution error:', error);
+    
+    // Cleanup
+    try {
+      const container = docker.getContainer(containerName);
+      await container.stop({ t: 0 });
+      await container.remove();
+    } catch (cleanupError) {
+      console.error('❌ [CPP-DOCKER] Cleanup error:', cleanupError);
     }
+    
+    await unlink(filepath).catch(console.error);
+    throw error;
   }
-}
+} 

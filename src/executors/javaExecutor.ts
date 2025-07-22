@@ -1,402 +1,269 @@
 import Docker from 'dockerode';
-import { writeFile } from 'fs-extra';
-import { dir } from 'tmp-promise';
+import { writeFile, unlink } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
-export const PYTHON_IMAGE = 'python:3.8-slim';
-export const JAVA_IMAGE = 'openjdk:17-jdk-slim';
-export const CPP_IMAGE = 'gcc:latest';
+interface TestCase {
+  input: string;
+  output: string;
+}
 
-// Function to properly demultiplex Docker logs
-function demultiplexDockerLogs(buffer: Buffer): { stdout: string, stderr: string } {
+interface CodeStub {
+  language: string;
+  startSnippet: string;
+  userSnippet: string;
+  endSnippet: string;
+}
+
+interface Problem {
+  title: string;
+  testcases: TestCase[];
+  codeStubs: CodeStub[];
+}
+
+// Docker output stream demultiplexer
+function demultiplexDockerLogs(buffer: Buffer): { stdout: string; stderr: string } {
   let stdout = '';
   let stderr = '';
+
   let offset = 0;
-  
   while (offset < buffer.length) {
     if (offset + 8 > buffer.length) break;
-    
-    // Read the header
-    const streamType = buffer[offset];
-    const size = buffer.readUInt32BE(offset + 4);
-    
-    if (offset + 8 + size > buffer.length) break;
-    
-    // Extract the payload
-    const payload = buffer.slice(offset + 8, offset + 8 + size).toString();
-    
-    // Stream type: 1 = stdout, 2 = stderr
+
+    // Read the 8-byte header
+    const header = buffer.slice(offset, offset + 8);
+    const streamType = header[0];
+    const payloadSize = header.readUInt32BE(4);
+
+    offset += 8;
+
+    if (offset + payloadSize > buffer.length) break;
+
+    // Read the payload
+    const payload = buffer.slice(offset, offset + payloadSize);
+    const payloadString = payload.toString('utf8');
+
+    // Route to appropriate stream
     if (streamType === 1) {
-      stdout += payload;
+      stdout += payloadString;
     } else if (streamType === 2) {
-      stderr += payload;
+      stderr += payloadString;
     }
+
+    offset += payloadSize;
+  }
+
+  return { stdout, stderr };
+}
+
+export class JavaExecutor {
+  private problem: Problem;
+  private userCode: string;
+
+  constructor(problem: Problem, userCode: string) {
+    this.problem = problem;
+    this.userCode = userCode;
+  }
+
+  // Generate complete Java code with test runner
+  generateCode(): string {
+    const stub = this.problem.codeStubs.find(s => s.language === 'JAVA');
+    if (!stub) {
+      throw new Error('No Java code stub found for this problem');
+    }
+
+    // Build the complete code structure
+    const fullCode = stub.startSnippet + '\n' + this.userCode + '\n' + stub.endSnippet;
     
-    offset += 8 + size;
-  }
-  
-  return { stdout: stdout.trim(), stderr: stderr.trim() };
-}
-
-// Test function to verify regex patterns
-function testRegexPatterns() {
-  const testCode = `public int[] twoSum(int[] nums, int target) {
-Map<Integer, Integer> map = new HashMap<>();
-    for (int i = 0; i < nums.length; i++) {
-        int complement = target - nums[i];
-        if (map.containsKey(complement)) {
-            return new int[]{map.get(complement), i};
-        }
-        map.put(nums[i], i);
-    }
-    return new int[0];
-
-    }`;
-  
-  console.log('🧪 Testing regex patterns with:', testCode);
-  
-  // Test method name extraction
-  const methodMatch = testCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
-  console.log('🧪 Method name match:', methodMatch);
-  
-  // Test method signature extraction
-  const methodSignatureMatch = testCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+\w+\s*\(([^)]*)\)/);
-  console.log('🧪 Method signature match:', methodSignatureMatch);
-  
-  // Test parameter detection
-  const methodParams = methodSignatureMatch ? methodSignatureMatch[1].trim() : '';
-  console.log('🧪 Method params:', methodParams);
-  
-  const hasArrayParam = /int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\]/.test(methodParams);
-  const hasIntParam = /\bint\s+\w+/.test(methodParams) && !/int\[\]/.test(methodParams);
-  
-  console.log('🧪 hasArrayParam:', hasArrayParam);
-  console.log('🧪 hasIntParam:', hasIntParam);
-  console.log('🧪 Combined condition (hasArrayParam && hasIntParam):', hasArrayParam && hasIntParam);
-}
-
-// Java code template for user submissions
-function buildJavaCode(fullCode: string): string {
-  console.log('🔧 Building Java code with input:', fullCode);
-  const cleanUserCode = fullCode.trim();
-  console.log('🧹 Cleaned user code:', cleanUserCode);
-
-  // Try to extract the Solution class
-  let solutionMatch = cleanUserCode.match(/class Solution\s*\{([\s\S]*)\}/);
-  let solutionContent = '';
-  let isClass = false;
-  if (solutionMatch) {
-    solutionContent = solutionMatch[1];
-    isClass = true;
-    console.log('🔧 Found Solution class.');
-  } else {
-    // Try to detect if it's just a method (public/protected/private ...)
-    const methodMatch = cleanUserCode.match(/(public|protected|private)?\s*(static)?\s*(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+\w+\s*\([\s\S]*\)\s*\{/);
-    if (methodMatch) {
-      solutionContent = cleanUserCode;
-      isClass = false;
-      console.log('🔧 No Solution class found, but found a method. Wrapping in class Solution.');
-    } else {
-      // Fallback: return as is
-      console.error('❌ Could not find Solution class or method in the code');
-      return cleanUserCode;
-    }
+    // Generate test runner
+    const testRunner = this.generateTestRunner();
+    
+    return fullCode + '\n\n' + testRunner;
   }
 
-  // Extract method name
-  const solutionMethodMatch = solutionContent.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
-  const methodName = solutionMethodMatch ? solutionMethodMatch[1] : 'twoSum';
-  console.log('🔧 Extracted method name from Solution class:', methodName);
+  private generateTestRunner(): string {
+    const methodName = this.extractMethodName();
+    const testCases = this.problem.testcases.map((tc, index) => {
+      return `        // Test case ${index + 1}
+        Object test_input = ${tc.input};
+        Object expected_output = ${tc.output};
+        Object result = sol.${methodName}(test_input);
+        System.out.println("TEST_${index + 1}:" + result);`;
+    }).join('\n');
 
-  // Build the new main method as before (existing logic)
-  let newMainMethod = '';
-  if (methodName === 'twoSum') {
-    newMainMethod = `public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        String line = sc.nextLine().trim();
-        String[] parts = line.split("],");
-        String arrStr = parts[0].replace("[", "").replace("]", "").trim();
-
-        // Handle empty array case
-        int[] nums;
-        if (arrStr.isEmpty()) {
-            nums = new int[0];
-        } else {
-            String[] arrItems = arrStr.split(",");
-            nums = new int[arrItems.length];
-            for (int i = 0; i < arrItems.length; i++) {
-                nums[i] = Integer.parseInt(arrItems[i].trim());
-            }
-        }
-        int target = Integer.parseInt(parts[1].trim());
-
+    return `    public static void main(String[] args) {
         Solution sol = new Solution();
-        int[] result = sol.${methodName}(nums, target);
-        System.out.println(Arrays.toString(result).replaceAll(", ", ","));
-    }`;
-  } else if (methodName === 'isValid') {
-    newMainMethod = `public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        String s = sc.nextLine().trim().replaceAll("^\\\"|\\\"$", "");
-        Solution sol = new Solution();
-        boolean result = sol.${methodName}(s);
-        System.out.println(result);
-    }`;
-  } else if (methodName === 'maxSubArray' || methodName === 'removeDuplicates') {
-    newMainMethod = `public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        String line = sc.nextLine().trim();
-        String arrStr = line.replace("[", "").replace("]", "").trim();
-        
-        int[] nums;
-        if (arrStr.isEmpty()) {
-            nums = new int[0];
-        } else {
-            String[] arrItems = arrStr.split(",");
-            nums = new int[arrItems.length];
-            for (int i = 0; i < arrItems.length; i++) {
-                nums[i] = Integer.parseInt(arrItems[i].trim());
-            }
-        }
-        
-        Solution sol = new Solution();
-        int result = sol.${methodName}(nums);
-        System.out.println(result);
-    }`;
-  } else if (methodName === 'isPalindrome') {
-    newMainMethod = `public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        int x = Integer.parseInt(sc.nextLine().trim());
-        Solution sol = new Solution();
-        boolean result = sol.${methodName}(x);
-        System.out.println(result);
-    }`;
-  } else {
-    // Default case
-    newMainMethod = `public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        String line = sc.nextLine().trim();
-        Solution sol = new Solution();
-        // Add your method call here
+${testCases}
     }`;
   }
 
-  // Build the final code
-  const finalCode = `import java.util.*;
+  private extractMethodName(): string {
+    const stub = this.problem.codeStubs.find(s => s.language === 'JAVA');
+    if (!stub) return 'solve';
 
-public class Main {
-${newMainMethod}
+    const methodMatch = stub.userSnippet.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
+    return methodMatch ? methodMatch[1] : 'solve';
+  }
 }
 
-class Solution {
-${solutionContent}
-}`;
-  console.log('🔧 Final processed code:', finalCode);
-  return finalCode;
-}
+// Main execution function using Docker
+export async function runJava(
+  problem: Problem,
+  userCode: string
+): Promise<{ stdout: string; stderr: string }> {
+  console.log('🚀 [JAVA-DOCKER] Starting Java execution with Docker...');
+  console.log('📥 Problem:', problem.title);
+  console.log('📥 User code length:', userCode.length);
 
-export async function runJava(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
-  console.log('🚀 Starting Java execution...');
-  console.log('📥 Input code:', fullCode);
-  console.log('📥 Input data:', input);
-  
-  // Use the direct method as primary approach since volume mounting is unreliable
-  console.log('🔄 Using direct file creation method as primary approach...');
-  return await runJavaDirect(fullCode, input);
-}
-
-// Alternative approach using exec instead of logs
-export async function runJavaAlternative(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
-  console.log('🔄 Using alternative Java execution method...');
   const docker = new Docker();
-  const { path, cleanup } = await dir({ unsafeCleanup: true });
-  const codeToRun = buildJavaCode(fullCode);
-  const filePath = `${path}/Main.java`;
-  await writeFile(filePath, codeToRun);
-  let container: any = null;
-  
-  try {
-    await docker.pull(JAVA_IMAGE);
-    
-    container = await docker.createContainer({
-      Image: JAVA_IMAGE,
-      Cmd: ['sleep', '30'], // Keep container alive
-      HostConfig: { 
-        Binds: [`${path}:/usr/src/app:ro`], 
-        AutoRemove: false 
-      },
-      WorkingDir: '/usr/src/app',
-      Tty: false,
-      OpenStdin: false
-    });
-    
-    await container.start();
-    
-    // Execute compilation
-    const compileExec = await container.exec({
-      Cmd: ['javac', 'Main.java'],
-      AttachStdout: true,
-      AttachStderr: true
-    });
-    
-    const compileStream = await compileExec.start({ Detach: false });
-    let compileOutput = '';
-    
-    compileStream.on('data', (chunk: Buffer) => {
-      compileOutput += chunk.toString();
-    });
-    
-    await new Promise(resolve => compileStream.on('end', resolve));
-    
-    if (compileOutput.includes('error:')) {
-      await container.kill();
-      await cleanup();
-      return { stdout: '', stderr: compileOutput };
-    }
-    
-    // Execute the program
-    const runExec = await container.exec({
-      Cmd: ['sh', '-c', `echo "${input}" | java Main`],
-      AttachStdout: true,
-      AttachStderr: true
-    });
-    
-    const runStream = await runExec.start({ Detach: false });
-    let stdout = '';
-    let stderr = '';
-    
-    runStream.on('data', (chunk: Buffer) => {
-      const output = chunk.toString();
-      if (output.includes('Exception') || output.includes('Error')) {
-        stderr += output;
-      } else {
-        stdout += output;
-      }
-    });
-    
-    await new Promise(resolve => runStream.on('end', resolve));
-    
-    return { 
-      stdout: stdout.trim(), 
-      stderr: stderr.trim() 
-    };
-    
-  } catch (err: any) {
-    console.error('Alternative Java execution failed:', err);
-    
-    // Try third approach - create file directly in container
-    console.log('🔄 Trying third approach - direct file creation...');
-    return await runJavaDirect(fullCode, input);
-  } finally {
-    if (container) {
-      try {
-        // Check if container is still running before trying to kill it
-        const containerInfo = await container.inspect();
-        if (containerInfo.State.Running) {
-        await container.kill();
-        }
-        await container.remove();
-      } catch (e) {
-        console.error('Failed to cleanup alternative container:', e);
-      }
-    }
-    await cleanup();
-  }
-}
+  const executor = new JavaExecutor(problem, userCode);
+  const fullCode = executor.generateCode();
 
-// Third approach: Create file directly inside container
-export async function runJavaDirect(fullCode: string, input: string): Promise<{ stdout: string, stderr: string }> {
-  console.log('🔄 Using direct file creation method...');
-  const docker = new Docker();
-  const codeToRun = buildJavaCode(fullCode);
-  let container: any = null;
-  
+  console.log('🔧 Generated Java code:', fullCode);
+
+  const filename = `Solution_${Date.now()}.java`;
+  const filepath = join(tmpdir(), filename);
+  const containerName = `java-exec-${Date.now()}`;
+
   try {
-    await docker.pull(JAVA_IMAGE);
-    
-    // Use a safer approach with base64 encoding to avoid shell escaping issues
-    const codeToRunBase64 = Buffer.from(codeToRun).toString('base64');
-    const inputBase64 = Buffer.from(input).toString('base64');
-    
+    // Write code to temporary file
+    await writeFile(filepath, fullCode);
+    console.log('📝 [JAVA-DOCKER] Code written to:', filepath);
+
+    // Pull Java image if not exists
+    console.log('📦 [JAVA-DOCKER] Pulling Java image...');
+    await docker.pull('openjdk:11-jdk-slim');
+
+    // Create container
+    console.log('🐳 [JAVA-DOCKER] Creating container...');
     const container = await docker.createContainer({
-      Image: JAVA_IMAGE,
-      Cmd: ['sh', '-c', `
-        echo '${codeToRunBase64}' | base64 -d > Main.java
-        javac Main.java
-        echo '${inputBase64}' | base64 -d | java Main
-      `],
-      HostConfig: { 
-        AutoRemove: false,
-        Memory: 512 * 1024 * 1024,
+      Image: 'openjdk:11-jdk-slim',
+      name: containerName,
+      Cmd: ['sh', '-c', `cd /tmp && javac ${filename} && java Solution`],
+      HostConfig: {
+        Memory: 512 * 1024 * 1024, // 512MB limit
+        MemorySwap: 512 * 1024 * 1024,
         CpuPeriod: 100000,
-        CpuQuota: 50000,
-        NetworkMode: 'none',
+        CpuQuota: 50000, // 50% CPU limit
+        NetworkMode: 'none', // No network access
+        Binds: [`${filepath}:/tmp/${filename}:ro`], // Read-only mount
+        AutoRemove: true,
+        SecurityOpt: ['no-new-privileges'],
+        CapDrop: ['ALL']
       },
-      Tty: false,
-      OpenStdin: true,
-      StdinOnce: false,
+      WorkingDir: '/tmp'
     });
-    
+
+    console.log('✅ [JAVA-DOCKER] Container created:', container.id);
+
+    // Start container and get logs
+    console.log('▶️ [JAVA-DOCKER] Starting container...');
     await container.start();
-    
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Container execution timeout (30s)')), 30000);
-    });
-    
-    const waitPromise = container.wait();
-    const result = await Promise.race([waitPromise, timeoutPromise]) as any;
-    
-    const logs = await container.logs({
+
+    // Get logs with real-time streaming
+    const logStream = await container.logs({
+      follow: true,
       stdout: true,
       stderr: true,
-      tail: 1000
+      tail: 'all'
     });
-    
-    const logBuffer = Buffer.from(logs);
-    let stdout = '', stderr = '';
-    let offset = 0;
-    
-    while (offset < logBuffer.length) {
-      if (offset + 8 > logBuffer.length) break;
-      
-      const streamType = logBuffer[offset];
-      const size = logBuffer.readUInt32BE(offset + 4);
-      
-      if (offset + 8 + size > logBuffer.length) break;
-      
-      const payload = logBuffer.slice(offset + 8, offset + 8 + size).toString();
-      
-      if (streamType === 1) {
-        stdout += payload;
-      } else if (streamType === 2) {
-        stderr += payload;
-      }
-      
-      offset += 8 + size;
-    }
-    
-    await container.remove();
-    
-    console.log('✅ [DIRECT] Java execution completed successfully');
-    console.log('📤 [DIRECT] stdout:', stdout);
-    console.log('📤 [DIRECT] stderr:', stderr);
-    
-    return { stdout: stdout.trim(), stderr: stderr.trim() };
-    
-  } catch (err: any) {
-    console.error('❌ [DIRECT] Direct Java execution failed:', err);
-    return { stdout: '', stderr: err.message || 'Direct execution failed' };
-  } finally {
-    if (container) {
-      try {
-        // Check if container is still running before trying to kill it
-        const containerInfo = await container.inspect();
-        if (containerInfo.State.Running) {
-          await container.kill();
+
+    let stdout = '';
+    let stderr = '';
+    let logsBuffer = Buffer.alloc(0);
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(async () => {
+        console.log('⏰ [JAVA-DOCKER] Execution timeout, stopping container...');
+        try {
+          await container.stop({ t: 0 });
+          await container.remove();
+        } catch (error) {
+          console.error('❌ [JAVA-DOCKER] Error stopping container:', error);
         }
-        await container.remove();
-      } catch (e) {
-        console.error('Failed to cleanup direct container:', e);
-      }
+        resolve({ stdout, stderr: stderr || 'Execution timeout' });
+      }, 10000);
+
+      logStream.on('data', (chunk: Buffer) => {
+        console.log('📤 [JAVA-DOCKER] Raw log chunk received, size:', chunk.length);
+        
+        // Accumulate buffer
+        logsBuffer = Buffer.concat([logsBuffer, chunk]);
+        
+        // Try to demultiplex if we have enough data
+        if (logsBuffer.length >= 8) {
+          try {
+            const demuxed = demultiplexDockerLogs(logsBuffer);
+            stdout += demuxed.stdout;
+            stderr += demuxed.stderr;
+            
+            // Log real-time output
+            if (demuxed.stdout) {
+              console.log('📤 [JAVA-DOCKER] STDOUT:', demuxed.stdout.trim());
+            }
+            if (demuxed.stderr) {
+              console.log('❌ [JAVA-DOCKER] STDERR:', demuxed.stderr.trim());
+            }
+          } catch (error) {
+            console.error('❌ [JAVA-DOCKER] Error demultiplexing logs:', error);
+          }
+        }
+      });
+
+      logStream.on('end', async () => {
+        console.log('🏁 [JAVA-DOCKER] Log stream ended');
+        clearTimeout(timeout);
+        
+        try {
+          // Get final container state
+          const containerData = await container.inspect();
+          const exitCode = containerData.State.ExitCode;
+          
+          console.log('📊 [JAVA-DOCKER] Container exit code:', exitCode);
+          
+          // Clean up
+          await container.remove();
+          await unlink(filepath).catch(console.error);
+          
+          if (exitCode !== 0 && !stderr) {
+            stderr = `Container exited with code ${exitCode}`;
+          }
+          
+          resolve({ stdout, stderr });
+        } catch (error) {
+          console.error('❌ [JAVA-DOCKER] Error in cleanup:', error);
+          resolve({ stdout, stderr: stderr || 'Container execution failed' });
+        }
+      });
+
+      logStream.on('error', async (error: any) => {
+        console.error('❌ [JAVA-DOCKER] Log stream error:', error);
+        clearTimeout(timeout);
+        
+        try {
+          await container.stop({ t: 0 });
+          await container.remove();
+        } catch (cleanupError) {
+          console.error('❌ [JAVA-DOCKER] Error stopping container:', cleanupError);
+        }
+        
+        reject(error);
+      });
+    });
+
+  } catch (error) {
+    console.error('❌ [JAVA-DOCKER] Execution error:', error);
+    
+    // Cleanup
+    try {
+      const container = docker.getContainer(containerName);
+      await container.stop({ t: 0 });
+      await container.remove();
+    } catch (cleanupError) {
+      console.error('❌ [JAVA-DOCKER] Cleanup error:', cleanupError);
     }
+    
+    await unlink(filepath).catch(console.error);
+    throw error;
   }
-}
+} 

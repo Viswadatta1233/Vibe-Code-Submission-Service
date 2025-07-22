@@ -18,7 +18,7 @@ console.log('🔧 [WORKER] REDIS_PORT:', process.env.REDIS_PORT || 6379);
 
 mongoose.connect(process.env.MONGO_URI || '', {})
   .then(() => console.log('✅ [WORKER] Connected to MongoDB'))
-  .catch(err => console.error('❌ cj[WORKER] MongoDB connection errors:', err));
+  .catch(err => console.error('❌ [WORKER] MongoDB connection errors:', err));
 
 const redisOptions = {
   host: process.env.REDIS_HOST || 'host.docker.internal',
@@ -54,224 +54,187 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
   console.log('🎯 [WORKER] Job received:', job.id);
   console.log('📋 [WORKER] Job data:', JSON.stringify(job.data, null, 2));
   
-  const { submissionId, userId, problemId, language, fullCode, testcases } = job.data;
+  const { submissionId, userId, problemId, language, userCode, problem, testcases } = job.data;
   
   try {
-  
-  console.log('🔍 Worker Debug - Job Data:');
-  console.log('📥 Language:', language);
-  console.log('📥 Language type:', typeof language);
-  console.log('📥 Language === "CPP":', language === 'CPP');
-  console.log('📥 Language === "JAVA":', language === 'JAVA');
-  console.log('📥 Language === "PYTHON":', language === 'PYTHON');
-  console.log('📥 Full job data:', job.data);
-  
-  // Debug logging for C++ submissions
-  if (language === 'CPP') {
-    console.log('🔍 C++ Worker Debug:');
-    console.log('📥 Full code received:', fullCode);
-    console.log('📥 Test case input:', testcases[0]?.input);
-    console.log('🔧 About to call runCpp...');
-  }
-  
-  // Debug logging for Python submissions
-  if (language === 'PYTHON') {
-    console.log('🔍 Python Worker Debug:');
-    console.log('📥 Full code received:', fullCode);
-    console.log('📥 Test case input:', testcases[0]?.input);
-    console.log('🔧 About to call runPython...');
-  }
-  
-  console.log('🔄 [WORKER] Starting job processing...');
-  
-  // Send "Running" status update
-  await Submission.findByIdAndUpdate(submissionId, { status: 'Running' });
-  console.log('✅ [WORKER] Updated submission status to Running');
-  await sendWebSocketUpdate(userId, submissionId, { status: 'Running' });
-  
-  // Add a small delay to make the "Running" state visible
-  await new Promise(resolve => setTimeout(resolve, 300));
-  
-  let status = 'Success';
-  let results: any[] = [];
-  
-  console.log(`🔄 [WORKER] Processing ${testcases.length} test cases...`);
-  
-  for (let i = 0; i < testcases.length; i++) {
-    const testcase = testcases[i];
-    console.log(`📝 [WORKER] Processing test case ${i + 1}/${testcases.length}:`, testcase);
-    let execResult;
+    console.log('🔍 [WORKER] Starting execution...');
+    console.log('📥 Language:', language);
+    console.log('📥 Problem:', problem.title);
+    console.log('📥 User code length:', userCode.length);
     
-    if (language === 'JAVA') {
-      // Accept the full method (with signature) as userCode for Java
-      console.log('🚀 Calling runJava with:', { fullCode, input: testcase.input });
-      try {
-        execResult = await runJava(fullCode, testcase.input);
-        console.log('✅ runJava completed successfully');
-        console.log('📤 runJava result:', execResult);
-      } catch (error) {
-        console.error('❌ runJava failed with error:', error);
-        throw error;
-      }
-    } else if (language === 'PYTHON') {
-      console.log('🚀 Calling runPython with:', { fullCode, input: testcase.input });
-      try {
-        execResult = await runPython(fullCode, testcase.input);
-        console.log('✅ runPython completed successfully');
-        console.log('📤 runPython result:', execResult);
-      } catch (error) {
-        console.error('❌ runPython failed with error:', error);
-        throw error;
-      }
-    } else if (language === 'CPP') {
-      console.log('🚀 Calling runCpp with:', { fullCode, input: testcase.input });
-      try {
-        execResult = await runCpp(fullCode, testcase.input);
-        console.log('✅ runCpp completed successfully');
-        console.log('📤 runCpp result:', execResult);
-      } catch (error) {
-        console.error('❌ runCpp failed with error:', error);
-        throw error;
-      }
-    } else {
-      status = 'RE';
-      break;
-    }
+    // Send "Running" status update
+    await Submission.findByIdAndUpdate(submissionId, { status: 'Running' });
+    console.log('✅ [WORKER] Updated submission status to Running');
+    await sendWebSocketUpdate(userId, submissionId, { status: 'Running' });
     
-    const output = execResult.stdout.trim();
-    const expected = testcase.output.trim();
+    // Add a small delay to make the "Running" state visible
+    await new Promise(resolve => setTimeout(resolve, 300));
     
-    if (execResult.stderr) {
-      status = 'RE';
-      results.push({ testcase, output, error: execResult.stderr });
+    let status = 'Success';
+    let results: any[] = [];
+    
+    console.log(`🔄 [WORKER] Processing ${testcases.length} test cases with ${language} executor...`);
+    
+    // Use the appropriate executor based on language
+    try {
+      let execResult;
       
-      // Send incremental update with current results
+      switch (language) {
+        case 'JAVA':
+          execResult = await runJava(problem, userCode);
+          break;
+        case 'PYTHON':
+          execResult = await runPython(problem, userCode);
+          break;
+        case 'CPP':
+          execResult = await runCpp(problem, userCode);
+          break;
+        default:
+          throw new Error(`Unsupported language: ${language}`);
+      }
+      
+      console.log('✅ [WORKER] Execution completed');
+      console.log('📤 [WORKER] Execution result:', execResult);
+      
+      // Parse the output to extract test results
+      const outputLines = execResult.stdout.trim().split('\n');
+      const testResults = [];
+      
+      for (let i = 0; i < testcases.length; i++) {
+        const testcase = testcases[i];
+        const outputLine = outputLines[i];
+        
+        if (!outputLine) {
+          // Missing output line
+          testResults.push({ 
+            testcase, 
+            output: '', 
+            passed: false, 
+            error: 'No output received' 
+          });
+          status = 'WA';
+          continue;
+        }
+        
+        // Parse output line format: "TEST_1:result"
+        const match = outputLine.match(/TEST_\d+:(.+)/);
+        if (!match) {
+          testResults.push({ 
+            testcase, 
+            output: outputLine, 
+            passed: false, 
+            error: 'Invalid output format' 
+          });
+          status = 'WA';
+          continue;
+        }
+        
+        const actualOutput = match[1].trim();
+        const expectedOutput = testcase.output.trim();
+        const passed = actualOutput === expectedOutput;
+        
+        testResults.push({ 
+          testcase, 
+          output: actualOutput, 
+          passed 
+        });
+        
+        if (!passed) {
+          status = 'WA';
+        }
+        
+        // Send incremental update after each test case
+        console.log(`✅ Test case ${i + 1}/${testcases.length} completed: ${passed ? 'PASSED' : 'FAILED'}`);
+        await sendWebSocketUpdate(userId, submissionId, { 
+          status: status === 'WA' ? 'WA' : 'Running', 
+          results: testResults.map(result => ({
+            testcase: result.testcase,
+            output: result.output,
+            passed: result.passed,
+            error: result.error
+          }))
+        });
+        
+        // Add a small delay to make progress visible
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      results = testResults;
+      
+    } catch (execError: any) {
+      console.error('❌ [WORKER] Execution failed:', execError);
+      status = 'RE';
+      results = testcases.map((testcase: any) => ({ 
+        testcase, 
+        output: '', 
+        error: execError.message || 'Execution failed' 
+      }));
+      
+      // Send error update
       await sendWebSocketUpdate(userId, submissionId, { 
         status: 'RE', 
         results: results.map(result => ({
           testcase: result.testcase,
           output: result.output,
-          passed: result.output === result.testcase.output,
+          passed: false,
           error: result.error
         }))
       });
-      break;
-    } else if (output !== expected) {
-      status = 'WA';
-      results.push({ testcase, output, expected });
-      
-      // Send incremental update with current results
-      await sendWebSocketUpdate(userId, submissionId, { 
-        status: 'WA', 
-        results: results.map(result => ({
-          testcase: result.testcase,
-          output: result.output,
-          passed: result.output === result.testcase.output,
-          error: result.error
-        }))
-      });
-      break;
-    } else {
-      results.push({ testcase, output });
-      
-      // Send incremental update after each successful test case
-      console.log(`✅ Test case ${i + 1}/${testcases.length} completed successfully`);
-      await sendWebSocketUpdate(userId, submissionId, { 
-        status: 'Running', 
-        results: results.map(result => ({
-          testcase: result.testcase,
-          output: result.output,
-          passed: result.output === result.testcase.output,
-          error: result.error
-        }))
-      });
-      
-      // Add a small delay to make progress visible
-      await new Promise(resolve => setTimeout(resolve, 500));
     }
-  }
-  
-  console.log(`✅ [WORKER] All test cases processed. Final status: ${status}`);
-  console.log(`📊 [WORKER] Results:`, results);
-  
-  // Update submission in DB
-  await Submission.findByIdAndUpdate(submissionId, { 
-    status,
-    results: results.map(result => ({
-      testcase: result.testcase,
-      output: result.output,
-      passed: result.output === result.testcase.output,
-      error: result.error,
-      expected: result.expected
-    }))
-  });
-  console.log('✅ [WORKER] Updated submission in database');
-  
-  // Send final status update via WebSocket
-  await sendWebSocketUpdate(userId, submissionId, { 
-    status, 
-    results: results.map(result => ({
-      testcase: result.testcase,
-      output: result.output,
-      passed: result.output === result.testcase.output,
-      error: result.error,
-      expected: result.expected
-    }))
-  });
-  
-  return { status, results };
-  } catch (error) {
-    console.error('❌ Worker job processing failed:', error);
     
-    // Update submission status to failed
-    await Submission.findByIdAndUpdate(submissionId, { status: 'Failed' });
+    console.log(`✅ [WORKER] All test cases processed. Final status: ${status}`);
+    console.log(`📊 [WORKER] Results:`, results);
     
-    // Send failure update via WebSocket
-    await sendWebSocketUpdate(userId, submissionId, { 
-      status: 'Failed', 
-      error: error instanceof Error ? error.message : 'Unknown error occurred'
+    // Update submission in DB
+    await Submission.findByIdAndUpdate(submissionId, { 
+      status,
+      results: results.map(result => ({
+        testcase: result.testcase,
+        output: result.output,
+        passed: result.passed,
+        error: result.error
+      }))
     });
     
-    // Re-throw the error so BullMQ can handle it
-    throw error;
+    // Send final status update
+    await sendWebSocketUpdate(userId, submissionId, { 
+      status,
+      results: results.map(result => ({
+        testcase: result.testcase,
+        output: result.output,
+        passed: result.passed,
+        error: result.error
+      }))
+    });
+    
+    console.log(`✅ [WORKER] Job completed successfully: ${submissionId}`);
+    
+  } catch (error: any) {
+    console.error('❌ [WORKER] Job processing error:', error);
+    
+    // Update submission status to failed
+    await Submission.findByIdAndUpdate(submissionId, { 
+      status: 'Failed',
+      results: []
+    });
+    
+    // Send error update
+    await sendWebSocketUpdate(userId, submissionId, { 
+      status: 'Failed',
+      error: error.message || 'Unknown error occurred'
+    });
   }
-}, { connection: redisOptions });
+}, {
+  connection: redisOptions,
+  concurrency: 1
+});
 
 submissionWorker.on('completed', (job) => {
   console.log(`✅ [WORKER] Job ${job.id} completed successfully`);
 });
 
-submissionWorker.on('failed', async (job, err) => {
+submissionWorker.on('failed', (job, err) => {
   console.error(`❌ [WORKER] Job ${job?.id} failed:`, err);
-  
-  if (job) {
-    const { submissionId, userId } = job.data;
-    
-    // Update submission status to failed
-    await Submission.findByIdAndUpdate(submissionId, { status: 'Failed' });
-    
-    // Send failure update via WebSocket
-    await sendWebSocketUpdate(userId, submissionId, { 
-      status: 'Failed', 
-      error: err.message 
-    });
-  }
 });
 
-submissionWorker.on('active', (job) => {
-  console.log(`🚀 [WORKER] Job ${job.id} started processing`);
-});
-
-submissionWorker.on('ready', () => {
-  console.log('✅ [WORKER] Worker is ready and listening for jobs');
-});
-
-submissionWorker.on('error', (err) => {
-  console.error('❌ [WORKER] Worker error:', err);
-});
-
-submissionWorker.on('closed', () => {
-  console.log('🔌 [WORKER] Worker connection closed');
-});
-
-export default submissionWorker;
+console.log('✅ [WORKER] Submission worker started and listening for jobs...');

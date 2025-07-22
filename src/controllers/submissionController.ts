@@ -60,27 +60,7 @@ export async function createSubmission(request: FastifyRequest, reply: FastifyRe
     
     console.log('✅ [SUBMISSION] Code stub found for language:', language);
     
-    // For Java, store only the user method as code in the DB, but for execution, expect the full method (with signature)
-    const fullCode = (stub.startSnippet || '') + (userCode || '') + (stub.endSnippet || '');
-    const isJava = language === 'JAVA';
-    const isCpp = language === 'CPP';
-    const isPython = language === 'PYTHON';
-    
-    // For Java, C++, and Python, only send the user method to the executor; for others, combine with stubs
-    let codeForJob = userCode;
-    if (language !== 'JAVA' && language !== 'CPP' && language !== 'PYTHON') {
-      codeForJob = (stub.startSnippet || '') + (userCode || '') + (stub.endSnippet || '');
-    }
-    
-    // Debug logging for C++ and Python submissions
-    if (language === 'CPP' || language === 'PYTHON') {
-      console.log(`🔍 ${language} Submission Debug:`);
-      console.log('📥 User code received:', userCode);
-      console.log('🔧 Code for job:', codeForJob);
-      console.log('📋 Start snippet:', stub.startSnippet);
-      console.log('📋 End snippet:', stub.endSnippet);
-    }
-    
+    // Store the complete code in the database (startSnippet + userCode + endSnippet)
     const codeForDb = (stub.startSnippet || '') + (userCode || '') + (stub.endSnippet || '');
     
     console.log('💾 [SUBMISSION] Creating submission in database...');
@@ -94,23 +74,16 @@ export async function createSubmission(request: FastifyRequest, reply: FastifyRe
     await submission.save();
     console.log(`✅ [SUBMISSION] Submission created: ${submission._id}`);
     
-    // Preprocess testcases to ensure input format is as expected for Java
-    const formattedTestcases = problem.testcases.map((t: any) => ({
-      ...t,
-      input: t.input.replace(/\],\s*/, '],') // ensures consistent split for Java
-    }));
-    
-    console.log('📊 [SUBMISSION] Testcases formatted:', formattedTestcases.length, 'testcases');
-    
-    // Add job to queue (fire-and-forget)
+    // Add job to queue with problem data for generic execution
     console.log('🚀 [SUBMISSION] Adding job to queue...');
     addSubmissionJob({
       submissionId: submission._id,
       userId,
       problemId,
       language,
-      fullCode: codeForJob,
-      testcases: formattedTestcases
+      userCode: userCode, // Send only user code, not full code
+      problem: problem, // Send full problem data for generic execution
+      testcases: problem.testcases
     }).catch(err => {
       console.error('❌ [SUBMISSION] Queue error:', err);
     });
