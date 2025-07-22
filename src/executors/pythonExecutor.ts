@@ -184,71 +184,119 @@ export async function runPython(
         resolve({ stdout, stderr: stderr || 'Execution timeout' });
       }, 10000);
 
-      logStream.on('data', (chunk: Buffer) => {
-        console.log('📤 [PYTHON-DOCKER] Raw log chunk received, size:', chunk.length);
-        
-        // Accumulate buffer
-        logsBuffer = Buffer.concat([logsBuffer, chunk]);
-        
-        // Try to demultiplex if we have enough data
-        if (logsBuffer.length >= 8) {
+      // Handle the log stream as a Node.js stream
+      if (logStream && typeof logStream.on === 'function') {
+        logStream.on('data', (chunk: Buffer) => {
+          console.log('📤 [PYTHON-DOCKER] Raw log chunk received, size:', chunk.length);
+          
+          // Accumulate buffer
+          logsBuffer = Buffer.concat([logsBuffer, chunk]);
+          
+          // Try to demultiplex if we have enough data
+          if (logsBuffer.length >= 8) {
+            try {
+              const demuxed = demultiplexDockerLogs(logsBuffer);
+              stdout += demuxed.stdout;
+              stderr += demuxed.stderr;
+              
+              // Log real-time output
+              if (demuxed.stdout) {
+                console.log('📤 [PYTHON-DOCKER] STDOUT:', demuxed.stdout.trim());
+              }
+              if (demuxed.stderr) {
+                console.log('❌ [PYTHON-DOCKER] STDERR:', demuxed.stderr.trim());
+              }
+            } catch (error) {
+              console.error('❌ [PYTHON-DOCKER] Error demultiplexing logs:', error);
+            }
+          }
+        });
+
+        logStream.on('end', async () => {
+          console.log('🏁 [PYTHON-DOCKER] Log stream ended');
+          clearTimeout(timeout);
+          
           try {
-            const demuxed = demultiplexDockerLogs(logsBuffer);
-            stdout += demuxed.stdout;
-            stderr += demuxed.stderr;
+            // Get final container state
+            const containerData = await container.inspect();
+            const exitCode = containerData.State.ExitCode;
             
-            // Log real-time output
-            if (demuxed.stdout) {
-              console.log('📤 [PYTHON-DOCKER] STDOUT:', demuxed.stdout.trim());
+            console.log('📊 [PYTHON-DOCKER] Container exit code:', exitCode);
+            
+            // Clean up
+            await container.remove();
+            await unlink(filepath).catch(console.error);
+            
+            if (exitCode !== 0 && !stderr) {
+              stderr = `Container exited with code ${exitCode}`;
             }
-            if (demuxed.stderr) {
-              console.log('❌ [PYTHON-DOCKER] STDERR:', demuxed.stderr.trim());
-            }
+            
+            resolve({ stdout, stderr });
           } catch (error) {
-            console.error('❌ [PYTHON-DOCKER] Error demultiplexing logs:', error);
+            console.error('❌ [PYTHON-DOCKER] Error in cleanup:', error);
+            resolve({ stdout, stderr: stderr || 'Container execution failed' });
           }
-        }
-      });
+        });
 
-      logStream.on('end', async () => {
-        console.log('🏁 [PYTHON-DOCKER] Log stream ended');
-        clearTimeout(timeout);
-        
-        try {
-          // Get final container state
-          const containerData = await container.inspect();
-          const exitCode = containerData.State.ExitCode;
+        logStream.on('error', async (error: any) => {
+          console.error('❌ [PYTHON-DOCKER] Log stream error:', error);
+          clearTimeout(timeout);
           
-          console.log('📊 [PYTHON-DOCKER] Container exit code:', exitCode);
-          
-          // Clean up
-          await container.remove();
-          await unlink(filepath).catch(console.error);
-          
-          if (exitCode !== 0 && !stderr) {
-            stderr = `Container exited with code ${exitCode}`;
+          try {
+            await container.stop({ t: 0 });
+            await container.remove();
+          } catch (cleanupError) {
+            console.error('❌ [PYTHON-DOCKER] Error stopping container:', cleanupError);
           }
           
-          resolve({ stdout, stderr });
-        } catch (error) {
-          console.error('❌ [PYTHON-DOCKER] Error in cleanup:', error);
-          resolve({ stdout, stderr: stderr || 'Container execution failed' });
-        }
-      });
-
-      logStream.on('error', async (error: any) => {
-        console.error('❌ [PYTHON-DOCKER] Log stream error:', error);
-        clearTimeout(timeout);
+          reject(error);
+        });
+      } else {
+        // Fallback: wait for container to finish and get logs
+        console.log('⚠️ [PYTHON-DOCKER] Using fallback log method');
         
-        try {
-          await container.stop({ t: 0 });
-          await container.remove();
-        } catch (cleanupError) {
-          console.error('❌ [PYTHON-DOCKER] Error stopping container:', cleanupError);
-        }
+        const waitForContainer = async () => {
+          try {
+            // Wait for container to finish
+            const result = await container.wait();
+            console.log('📊 [PYTHON-DOCKER] Container finished with code:', result.StatusCode);
+            
+            // Get logs after container finishes
+            const logs = await container.logs({
+              stdout: true,
+              stderr: true,
+              tail: 'all'
+            });
+            
+            // Process logs
+            if (logs && logs.length > 0) {
+              const demuxed = demultiplexDockerLogs(logs);
+              stdout = demuxed.stdout;
+              stderr = demuxed.stderr;
+              
+              console.log('📤 [PYTHON-DOCKER] Final STDOUT:', stdout.trim());
+              if (stderr) console.log('❌ [PYTHON-DOCKER] Final STDERR:', stderr.trim());
+            }
+            
+            // Clean up
+            await container.remove();
+            await unlink(filepath).catch(console.error);
+            
+            if (result.StatusCode !== 0 && !stderr) {
+              stderr = `Container exited with code ${result.StatusCode}`;
+            }
+            
+            clearTimeout(timeout);
+            resolve({ stdout, stderr });
+          } catch (error) {
+            console.error('❌ [PYTHON-DOCKER] Fallback error:', error);
+            clearTimeout(timeout);
+            reject(error);
+          }
+        };
         
-        reject(error);
-      });
+        waitForContainer();
+      }
     });
 
   } catch (error) {
