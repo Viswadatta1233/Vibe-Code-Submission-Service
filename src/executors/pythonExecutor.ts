@@ -234,25 +234,25 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
       '                parsed_input = clean_input',
       '',
       '        # Ensure the parsed input matches the expected type if possible',
-      '        if param_info and "List" in param_info:',
+      '        if param_info and "List" in param_info and "str" not in param_info:',
       '            if not isinstance(parsed_input, list):',
       '                parsed_input = [parsed_input]',
-      '        elif param_info and "str" in param_info:',
+      '        elif param_info and "str" in param_info and "List" not in param_info:',
       '            if not isinstance(parsed_input, str):',
       '                parsed_input = str(parsed_input)',
-      '        elif param_info and "int" in param_info:',
+      '        elif param_info and "int" in param_info and "List" not in param_info:',
       '            if not isinstance(parsed_input, int):',
       '                try:',
       '                    parsed_input = int(parsed_input)',
       '                except (ValueError, TypeError):',
       '                    pass  # Keep original if conversion fails',
-      '        elif param_info and "float" in param_info:',
+      '        elif param_info and "float" in param_info and "List" not in param_info:',
       '            if not isinstance(parsed_input, float):',
       '                try:',
       '                    parsed_input = float(parsed_input)',
       '                except (ValueError, TypeError):',
       '                    pass  # Keep original if conversion fails',
-      '        elif param_info and "bool" in param_info:',
+      '        elif param_info and "bool" in param_info and "List" not in param_info:',
       '            if not isinstance(parsed_input, bool):',
       '                parsed_input = bool(parsed_input)',
       '',
@@ -376,4 +376,4 @@ echo '${input}' | python main.py`;
       }
     }
   }
-} 
+}
