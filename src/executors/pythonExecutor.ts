@@ -72,8 +72,9 @@ export class PythonExecutor {
       throw new Error('No Python code stub found for this problem');
     }
 
-    // Build the complete code structure
-    const fullCode = stub.startSnippet + '\n' + this.userCode + '\n' + stub.endSnippet;
+    // Build the complete code structure with common imports
+    const imports = '# Common imports for coding problems\nimport sys\nimport os\nfrom typing import *\nfrom collections import *\nimport math\nimport heapq\n\n';
+    const fullCode = imports + stub.startSnippet + '\n' + this.userCode + '\n' + stub.endSnippet;
     
     // Generate test runner
     const testRunner = this.generateTestRunner();
@@ -85,10 +86,10 @@ export class PythonExecutor {
     const methodName = this.extractMethodName();
     const testCases = this.problem.testcases.map((tc, index) => {
       return `    # Test case ${index + 1}
-    test_input = ${tc.input}
-    expected_output = ${tc.output}
-    result = sol.${methodName}(test_input)
-    print(f"TEST_${index + 1}:{result}")`;
+    test_input_${index + 1} = ${tc.input}
+    expected_output_${index + 1} = ${tc.output}
+    result_${index + 1} = sol.${methodName}(test_input_${index + 1})
+    print(f"TEST_${index + 1}:{result_${index + 1}}")`;
     }).join('\n');
 
     return `# Test runner
@@ -147,7 +148,6 @@ export async function runPython(
         CpuQuota: 50000, // 50% CPU limit
         NetworkMode: 'none', // No network access
         Binds: [`${filepath}:/tmp/${filename}:ro`], // Read-only mount
-        AutoRemove: true,
         SecurityOpt: ['no-new-privileges'],
         CapDrop: ['ALL']
       },
@@ -182,7 +182,7 @@ export async function runPython(
           const result = await container.wait();
           console.log('📊 [PYTHON-DOCKER] Container finished with code:', result.StatusCode);
           
-          // Get logs after container finishes
+          // Get logs after container finishes (before removing)
           const logs = await container.logs({
             stdout: true,
             stderr: true
@@ -198,7 +198,7 @@ export async function runPython(
             if (stderr) console.log('❌ [PYTHON-DOCKER] Final STDERR:', stderr.trim());
           }
           
-          // Clean up
+          // Clean up container after getting logs
           await container.remove();
           await unlink(filepath).catch(console.error);
           
@@ -213,7 +213,6 @@ export async function runPython(
           clearTimeout(timeout);
           
           try {
-            await container.stop({ t: 0 });
             await container.remove();
           } catch (cleanupError) {
             console.error('❌ [PYTHON-DOCKER] Cleanup error:', cleanupError);

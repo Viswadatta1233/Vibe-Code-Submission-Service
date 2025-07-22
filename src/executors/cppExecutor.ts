@@ -72,8 +72,28 @@ export class CppExecutor {
       throw new Error('No C++ code stub found for this problem');
     }
 
-    // Build the complete code structure
-    const fullCode = stub.startSnippet + '\n' + this.userCode + '\n' + stub.endSnippet;
+    // Build the complete code structure with common includes
+    const includes = `// Common includes for coding problems
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <unordered_map>
+#include <unordered_set>
+#include <stack>
+#include <queue>
+#include <deque>
+#include <set>
+#include <map>
+#include <cmath>
+#include <climits>
+#include <cstring>
+#include <sstream>
+#include <iomanip>
+using namespace std;
+
+`;
+    const fullCode = includes + stub.startSnippet + '\n' + this.userCode + '\n' + stub.endSnippet;
     
     // Generate test runner
     const testRunner = this.generateTestRunner();
@@ -85,10 +105,10 @@ export class CppExecutor {
     const methodName = this.extractMethodName();
     const testCases = this.problem.testcases.map((tc, index) => {
       return `    // Test case ${index + 1}
-    auto test_input = ${tc.input};
-    auto expected_output = ${tc.output};
-    auto result = sol.${methodName}(test_input);
-    std::cout << "TEST_${index + 1}:" << result << std::endl;`;
+    auto test_input_${index + 1} = ${tc.input};
+    auto expected_output_${index + 1} = ${tc.output};
+    auto result_${index + 1} = sol.${methodName}(test_input_${index + 1});
+    std::cout << "TEST_${index + 1}:" << result_${index + 1} << std::endl;`;
     }).join('\n');
 
     return `int main() {
@@ -148,7 +168,6 @@ export async function runCpp(
         CpuQuota: 50000, // 50% CPU limit
         NetworkMode: 'none', // No network access
         Binds: [`${filepath}:/tmp/${filename}:ro`], // Read-only mount
-        AutoRemove: true,
         SecurityOpt: ['no-new-privileges'],
         CapDrop: ['ALL']
       },
@@ -183,7 +202,7 @@ export async function runCpp(
           const result = await container.wait();
           console.log('📊 [CPP-DOCKER] Container finished with code:', result.StatusCode);
           
-          // Get logs after container finishes
+          // Get logs after container finishes (before removing)
           const logs = await container.logs({
             stdout: true,
             stderr: true
@@ -199,7 +218,7 @@ export async function runCpp(
             if (stderr) console.log('❌ [CPP-DOCKER] Final STDERR:', stderr.trim());
           }
           
-          // Clean up
+          // Clean up container after getting logs
           await container.remove();
           await unlink(filepath).catch(console.error);
           
@@ -214,7 +233,6 @@ export async function runCpp(
           clearTimeout(timeout);
           
           try {
-            await container.stop({ t: 0 });
             await container.remove();
           } catch (cleanupError) {
             console.error('❌ [CPP-DOCKER] Cleanup error:', cleanupError);

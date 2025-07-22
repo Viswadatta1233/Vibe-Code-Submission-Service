@@ -72,8 +72,9 @@ export class JavaExecutor {
       throw new Error('No Java code stub found for this problem');
     }
 
-    // Build the complete code structure
-    const fullCode = stub.startSnippet + '\n' + this.userCode + '\n' + stub.endSnippet;
+    // Build the complete code structure with imports
+    const imports = 'import java.util.Stack;\nimport java.util.*;\n';
+    const fullCode = imports + stub.startSnippet + '\n' + this.userCode + '\n' + stub.endSnippet;
     
     // Generate test runner
     const testRunner = this.generateTestRunner();
@@ -85,10 +86,10 @@ export class JavaExecutor {
     const methodName = this.extractMethodName();
     const testCases = this.problem.testcases.map((tc, index) => {
       return `        // Test case ${index + 1}
-        Object test_input = ${tc.input};
-        Object expected_output = ${tc.output};
-        Object result = sol.${methodName}(test_input);
-        System.out.println("TEST_${index + 1}:" + result);`;
+        Object test_input_${index + 1} = ${tc.input};
+        Object expected_output_${index + 1} = ${tc.output};
+        Object result_${index + 1} = sol.${methodName}(test_input_${index + 1});
+        System.out.println("TEST_${index + 1}:" + result_${index + 1});`;
     }).join('\n');
 
     return `    public static void main(String[] args) {
@@ -147,7 +148,6 @@ export async function runJava(
         CpuQuota: 50000, // 50% CPU limit
         NetworkMode: 'none', // No network access
         Binds: [`${filepath}:/tmp/${filename}:ro`], // Read-only mount
-        AutoRemove: true,
         SecurityOpt: ['no-new-privileges'],
         CapDrop: ['ALL']
       },
@@ -182,7 +182,7 @@ export async function runJava(
           const result = await container.wait();
           console.log('📊 [JAVA-DOCKER] Container finished with code:', result.StatusCode);
           
-          // Get logs after container finishes
+          // Get logs after container finishes (before removing)
           const logs = await container.logs({
             stdout: true,
             stderr: true
@@ -198,7 +198,7 @@ export async function runJava(
             if (stderr) console.log('❌ [JAVA-DOCKER] Final STDERR:', stderr.trim());
           }
           
-          // Clean up
+          // Clean up container after getting logs
           await container.remove();
           await unlink(filepath).catch(console.error);
           
@@ -213,7 +213,6 @@ export async function runJava(
           clearTimeout(timeout);
           
           try {
-            await container.stop({ t: 0 });
             await container.remove();
           } catch (cleanupError) {
             console.error('❌ [JAVA-DOCKER] Cleanup error:', cleanupError);
