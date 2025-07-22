@@ -102,8 +102,11 @@ async function testDockerConnection() {
   } catch (error) {
     console.error('❌ [SUBMISSION-SERVICE] Docker connection failed:', error);
     console.error('💡 [SUBMISSION-SERVICE] Make sure Docker is running and accessible');
-    process.exit(1);
+    console.error('💡 [SUBMISSION-SERVICE] The service will start but code execution will not work until Docker is available');
+    // Don't exit the process, just log the error
+    return false;
   }
+  return true;
 }
 
 console.log('🔗 [SUBMISSION-SERVICE] Connecting to MongoDB...');
@@ -113,8 +116,8 @@ mongoose.connect(MONGO_URI)
   .then(async () => {
     console.log('✅ [SUBMISSION-SERVICE] Connected to MongoDB');
     
-    // Test Docker connection
-    await testDockerConnection();
+    // Test Docker connection (but don't fail if it's not available)
+    const dockerAvailable = await testDockerConnection();
     
     // Start the server
     try {
@@ -123,6 +126,12 @@ mongoose.connect(MONGO_URI)
       console.log(`🔗 [SUBMISSION-SERVICE] Health check: http://localhost:${PORT}/health`);
       console.log(`🔗 [SUBMISSION-SERVICE] Submission endpoints: http://localhost:${PORT}/api/submissions`);
       console.log(`🔗 [SUBMISSION-SERVICE] WebSocket update endpoint: http://localhost:${PORT}/api/websocket/update`);
+      
+      if (dockerAvailable) {
+        console.log('✅ [SUBMISSION-SERVICE] Docker is available - code execution will work');
+      } else {
+        console.log('⚠️ [SUBMISSION-SERVICE] Docker is not available - code execution will not work');
+      }
       
       // Initialize WebSocket service AFTER server starts
       websocketService.initialize(app);

@@ -87,6 +87,20 @@ jobs:
         docker stop submission-worker || true
         docker rm submission-worker || true
         
+    - name: Fix Docker socket permissions
+      run: |
+        echo "Checking Docker socket permissions..."
+        ls -la /var/run/docker.sock
+        echo "Setting Docker socket permissions..."
+        sudo chmod 666 /var/run/docker.sock || true
+        sudo chown root:docker /var/run/docker.sock || true
+        echo "Docker socket permissions after fix:"
+        ls -la /var/run/docker.sock
+        echo "Checking docker group..."
+        getent group docker || echo "Docker group does not exist"
+        echo "Current user groups:"
+        groups
+        
     - name: Create Docker network
       run: |
         docker network create submission-network || true
