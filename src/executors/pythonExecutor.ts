@@ -134,11 +134,13 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
       console.log('🔍 [PYTHON] Using user code as-is (no class wrapper detected)');
     }
     
-    // Extract method name from user code
-    const methodMatch = userCode.match(/def\s+(\w+)\s*\(/);
+    // Extract method name and parameter type from user code
+    const methodMatch = userCode.match(/def\s+(\w+)\s*\([^)]*\)\s*->\s*([^:]*):/);
     const methodName = methodMatch ? methodMatch[1] : 'solve';
+    const returnType = methodMatch ? methodMatch[2].trim() : 'Any';
     
     console.log('🔍 [PYTHON] Extracted method name:', methodName);
+    console.log('🔍 [PYTHON] Extracted return type:', returnType);
     console.log('🔍 [PYTHON] Method regex match:', methodMatch ? 'Found' : 'Not found, using default "solve"');
     
     // Build the complete Python program
@@ -150,6 +152,8 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
       'from collections import *',
       'import math',
       'import heapq',
+      'import ast',
+      'import json',
       '',
       'class Solution:',
       `    ${solutionContent}`,
@@ -168,7 +172,58 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
       '        if input_data.startswith(\'"\') and input_data.endswith(\'"\'):',
       '            clean_input = input_data[1:-1]',
       '',
-      `        result = solution.${methodName}(clean_input)`,
+      '        # Parse input based on format and method signature',
+      '        parsed_input = None',
+      '        return_type = "${returnType}"',
+      '',
+      '        if clean_input.startswith(\'[\') and clean_input.endswith(\']\'):',
+      '            # Parse array/list input',
+      '            try:',
+      '                # Try ast.literal_eval first (safest)',
+      '                parsed_input = ast.literal_eval(clean_input)',
+      '            except (ValueError, SyntaxError):',
+      '                # Fallback to manual parsing',
+      '                array_content = clean_input[1:-1]',
+      '                if array_content.strip():',
+      '                    # Check if elements are quoted (strings)',
+      '                    elements = [elem.strip() for elem in array_content.split(\',\')]',
+      '                    if elements and elements[0].startswith(\'"\') and elements[0].endswith(\'"\'):',
+      '                        # String array',
+      '                        parsed_input = [elem[1:-1] for elem in elements]',
+      '                    elif elements and elements[0].lower() in [\'true\', \'false\']:',
+      '                        # Boolean array',
+      '                        parsed_input = [elem.lower() == \'true\' for elem in elements]',
+      '                    else:',
+      '                        # Try to parse as numbers',
+      '                        try:',
+      '                            # Check if any element has decimal point',
+      '                            has_decimal = any(\'.\' in elem for elem in elements)',
+      '                            if has_decimal:',
+      '                                parsed_input = [float(elem) for elem in elements]',
+      '                            else:',
+      '                                parsed_input = [int(elem) for elem in elements]',
+      '                        except ValueError:',
+      '                            # Fallback to strings',
+      '                            parsed_input = elements',
+      '                else:',
+      '                    parsed_input = []',
+      '        elif clean_input.lower() in [\'true\', \'false\']:',
+      '            # Boolean input',
+      '            parsed_input = clean_input.lower() == \'true\'',
+      '        elif len(clean_input) == 1:',
+      '            # Single character',
+      '            parsed_input = clean_input',
+      '        else:',
+      '            # Try to parse as number, otherwise use as string',
+      '            try:',
+      '                if \'.\' in clean_input:',
+      '                    parsed_input = float(clean_input)',
+      '                else:',
+      '                    parsed_input = int(clean_input)',
+      '            except ValueError:',
+      '                parsed_input = clean_input',
+      '',
+      `        result = solution.${methodName}(parsed_input)`,
       '        print(result)',
       '    except Exception as e:',
       '        print(f"Error: {e}", file=sys.stderr)',
