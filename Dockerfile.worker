@@ -25,11 +25,11 @@ RUN apk add --no-cache \
     docker-cli \
     && rm -rf /var/cache/apk/*
 
-# Create docker group and add node user
-RUN addgroup -g 999 docker && \
-    adduser -D -s /bin/sh -u 999 -G docker node
+# Create docker group and add node user (handle potential conflicts)
+RUN addgroup -g 999 docker 2>/dev/null || true && \
+    usermod -a -G docker node 2>/dev/null || true
 
-# Set up Docker daemon
+# Set up Docker daemon directory
 RUN mkdir -p /var/run/docker && \
     chown -R node:docker /var/run/docker
 

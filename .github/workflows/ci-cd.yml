@@ -110,6 +110,7 @@ jobs:
           -p 5001:5001 \
           --add-host host.docker.internal:host-gateway \
           -v /var/run/docker.sock:/var/run/docker.sock \
+          --group-add 999 \
           ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}
         
     - name: Wait for main service to be ready
@@ -132,6 +133,7 @@ jobs:
           --env-file /var/www/submission-service/.env \
           --add-host host.docker.internal:host-gateway \
           -v /var/run/docker.sock:/var/run/docker.sock \
+          --group-add 999 \
           ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_WORKER_IMAGE }}:${{ env.DOCKER_TAG }}
         
     - name: Wait for worker to be ready
