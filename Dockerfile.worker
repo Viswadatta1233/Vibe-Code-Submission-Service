@@ -19,8 +19,19 @@ RUN npm run build
 # Production stage for worker
 FROM node:18-alpine AS production
 
-# Install Docker for code execution
-RUN apk add --no-cache docker-cli
+# Install Docker for Docker-in-Docker execution
+RUN apk add --no-cache \
+    docker \
+    docker-cli \
+    && rm -rf /var/cache/apk/*
+
+# Create docker group and add node user
+RUN addgroup -g 999 docker && \
+    adduser -D -s /bin/sh -u 999 -G docker node
+
+# Set up Docker daemon
+RUN mkdir -p /var/run/docker && \
+    chown -R node:docker /var/run/docker
 
 WORKDIR /app
 
@@ -36,6 +47,12 @@ COPY --from=builder /app/src ./src
 
 # Build worker TypeScript
 RUN npm run build:worker
+
+# Change ownership of app directory
+RUN chown -R node:docker /app
+
+# Switch to node user
+USER node
 
 # Start the worker
 CMD ["node", "dist/workers/submissionWorker.js"] 

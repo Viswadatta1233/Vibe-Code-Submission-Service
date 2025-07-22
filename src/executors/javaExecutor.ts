@@ -29,7 +29,7 @@ function demultiplexDockerLogs(buffer: Buffer): { stdout: string; stderr: string
   let offset = 0;
   while (offset < buffer.length) {
     if (offset + 8 > buffer.length) break;
-
+    
     // Read the 8-byte header
     const header = buffer.slice(offset, offset + 8);
     const streamType = header[0];
@@ -116,7 +116,9 @@ export async function runJava(
   console.log('📥 Problem:', problem.title);
   console.log('📥 User code length:', userCode.length);
 
-  const docker = new Docker();
+  const docker = new Docker({
+    socketPath: '/var/run/docker.sock'
+  });
   const executor = new JavaExecutor(problem, userCode);
   const fullCode = executor.generateCode();
 
@@ -130,6 +132,16 @@ export async function runJava(
     // Write code to temporary file
     await writeFile(filepath, fullCode);
     console.log('📝 [JAVA-DOCKER] Code written to:', filepath);
+    
+    // Verify file exists and has content
+    const fs = require('fs');
+    const stats = fs.statSync(filepath);
+    console.log('📊 [JAVA-DOCKER] File size:', stats.size, 'bytes');
+    console.log('📊 [JAVA-DOCKER] File exists:', fs.existsSync(filepath));
+
+    // Convert Windows path to Unix path for Docker
+    const unixPath = filepath.replace(/\\/g, '/');
+    console.log('🔄 [JAVA-DOCKER] Unix path for Docker:', unixPath);
 
     // Pull Java image if not exists
     console.log('📦 [JAVA-DOCKER] Pulling Java image...');
@@ -137,17 +149,20 @@ export async function runJava(
 
     // Create container
     console.log('🐳 [JAVA-DOCKER] Creating container...');
+    console.log('📁 [JAVA-DOCKER] File path:', filepath);
+    console.log('📁 [JAVA-DOCKER] Filename:', filename);
+    
     const container = await docker.createContainer({
       Image: 'openjdk:11-jdk-slim',
       name: containerName,
-      Cmd: ['sh', '-c', `cd /tmp && javac ${filename} && java Solution`],
-      HostConfig: {
+      Cmd: ['sh', '-c', `cd /tmp && echo "Files in /tmp:" && ls -la && echo "Compiling ${filename}..." && javac ${filename} && echo "Running Solution..." && java Solution`],
+      HostConfig: { 
         Memory: 512 * 1024 * 1024, // 512MB limit
         MemorySwap: 512 * 1024 * 1024,
         CpuPeriod: 100000,
         CpuQuota: 50000, // 50% CPU limit
         NetworkMode: 'none', // No network access
-        Binds: [`${filepath}:/tmp/${filename}:ro`], // Read-only mount
+        Binds: [`${unixPath}:/tmp/${filename}:ro`], // Read-only mount with Unix path
         SecurityOpt: ['no-new-privileges'],
         CapDrop: ['ALL']
       },
@@ -159,10 +174,10 @@ export async function runJava(
     // Start container and get logs
     console.log('▶️ [JAVA-DOCKER] Starting container...');
     await container.start();
-
+    
     let stdout = '';
     let stderr = '';
-
+    
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(async () => {
         console.log('⏰ [JAVA-DOCKER] Execution timeout, stopping container...');
@@ -183,8 +198,8 @@ export async function runJava(
           console.log('📊 [JAVA-DOCKER] Container finished with code:', result.StatusCode);
           
           // Get logs after container finishes (before removing)
-          const logs = await container.logs({
-            stdout: true,
+    const logs = await container.logs({
+      stdout: true,
             stderr: true
           });
           
@@ -232,7 +247,7 @@ export async function runJava(
     try {
       const container = docker.getContainer(containerName);
       await container.stop({ t: 0 });
-      await container.remove();
+        await container.remove();
     } catch (cleanupError) {
       console.error('❌ [JAVA-DOCKER] Cleanup error:', cleanupError);
     }
@@ -240,4 +255,4 @@ export async function runJava(
     await unlink(filepath).catch(console.error);
     throw error;
   }
-} 
+}

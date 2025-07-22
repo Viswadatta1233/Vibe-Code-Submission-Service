@@ -116,7 +116,9 @@ export async function runPython(
   console.log('📥 Problem:', problem.title);
   console.log('📥 User code length:', userCode.length);
 
-  const docker = new Docker();
+  const docker = new Docker({
+    socketPath: '/var/run/docker.sock'
+  });
   const executor = new PythonExecutor(problem, userCode);
   const fullCode = executor.generateCode();
 
@@ -130,6 +132,16 @@ export async function runPython(
     // Write code to temporary file
     await writeFile(filepath, fullCode);
     console.log('📝 [PYTHON-DOCKER] Code written to:', filepath);
+    
+    // Verify file exists and has content
+    const fs = require('fs');
+    const stats = fs.statSync(filepath);
+    console.log('📊 [PYTHON-DOCKER] File size:', stats.size, 'bytes');
+    console.log('📊 [PYTHON-DOCKER] File exists:', fs.existsSync(filepath));
+
+    // Convert Windows path to Unix path for Docker
+    const unixPath = filepath.replace(/\\/g, '/');
+    console.log('🔄 [PYTHON-DOCKER] Unix path for Docker:', unixPath);
 
     // Pull Python image if not exists
     console.log('📦 [PYTHON-DOCKER] Pulling Python image...');
@@ -147,7 +159,7 @@ export async function runPython(
         CpuPeriod: 100000,
         CpuQuota: 50000, // 50% CPU limit
         NetworkMode: 'none', // No network access
-        Binds: [`${filepath}:/tmp/${filename}:ro`], // Read-only mount
+        Binds: [`${unixPath}:/tmp/${filename}:ro`], // Read-only mount with Unix path
         SecurityOpt: ['no-new-privileges'],
         CapDrop: ['ALL']
       },

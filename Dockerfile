@@ -19,8 +19,19 @@ RUN npm run build || (echo "TypeScript compilation failed. Check the errors abov
 # Production stage for main service
 FROM node:18-alpine AS production
 
-# Install Docker for code execution
-RUN apk add --no-cache docker-cli
+# Install Docker for Docker-in-Docker execution
+RUN apk add --no-cache \
+    docker \
+    docker-cli \
+    && rm -rf /var/cache/apk/*
+
+# Create docker group and add node user
+RUN addgroup -g 999 docker && \
+    adduser -D -s /bin/sh -u 999 -G docker node
+
+# Set up Docker daemon
+RUN mkdir -p /var/run/docker && \
+    chown -R node:docker /var/run/docker
 
 WORKDIR /app
 
@@ -36,12 +47,18 @@ COPY --from=builder /app/dist ./dist
 # Copy source for worker (needed for ts-node)
 COPY --from=builder /app/src ./src
 
+# Change ownership of app directory
+RUN chown -R node:docker /app
+
 # Expose port
 EXPOSE 5001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:5001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+
+# Switch to node user
+USER node
 
 # Start the application
 CMD ["node", "dist/index.js"] 
