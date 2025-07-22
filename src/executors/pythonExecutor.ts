@@ -108,6 +108,9 @@ function fetchDecodedStream(loggerStream: NodeJS.ReadableStream, rawLogBuffer: B
 
 export async function runPython(problem: Problem, userCode: string): Promise<ExecutionResponse> {
   console.log('🚀 [PYTHON] Starting Python execution...');
+  console.log('📋 [PYTHON] Problem title:', problem.title);
+  console.log('📋 [PYTHON] User code length:', userCode.length);
+  console.log('📋 [PYTHON] Number of test cases:', problem.testcases?.length || 0);
   
   const docker = new Docker({ socketPath: '/var/run/docker.sock' });
   let container: any = null;
@@ -115,13 +118,20 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
   try {
     // Extract the Solution class content from user code
     let solutionContent = userCode;
+    console.log('🔍 [PYTHON] Original user code:', userCode.substring(0, 200) + '...');
     
     // If user provided full class, extract just the content
     if (userCode.includes('class Solution')) {
+      console.log('🔍 [PYTHON] Detected full class, extracting content...');
       const classMatch = userCode.match(/class Solution\s*:([\s\S]*)/);
       if (classMatch) {
         solutionContent = classMatch[1].trim();
+        console.log('🔍 [PYTHON] Extracted class content length:', solutionContent.length);
+      } else {
+        console.log('⚠️ [PYTHON] Could not extract class content, using full code');
       }
+    } else {
+      console.log('🔍 [PYTHON] Using user code as-is (no class wrapper detected)');
     }
     
     // Extract method name from user code
@@ -129,6 +139,7 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
     const methodName = methodMatch ? methodMatch[1] : 'solve';
     
     console.log('🔍 [PYTHON] Extracted method name:', methodName);
+    console.log('🔍 [PYTHON] Method regex match:', methodMatch ? 'Found' : 'Not found, using default "solve"');
     
     // Build the complete Python program
     const fullCode = [
@@ -167,6 +178,7 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
     ].join('\n');
 
     console.log('📝 [PYTHON] Generated code length:', fullCode.length);
+    console.log('📝 [PYTHON] Generated code preview:', fullCode.substring(0, 500) + '...');
     
     // Prepare test cases
     const testCases = problem.testcases || [];
@@ -177,10 +189,12 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
     
     for (let i = 0; i < testCases.length; i++) {
       const testCase = testCases[i];
-      console.log(`🧪 [PYTHON] Running test case ${i + 1}/${testCases.length}`);
-      
       const input = testCase.input;
       const expectedOutput = testCase.output;
+      
+      console.log(`🧪 [PYTHON] Running test case ${i + 1}/${testCases.length}`);
+      console.log(`📥 [PYTHON] Test case ${i + 1} input:`, input);
+      console.log(`📥 [PYTHON] Test case ${i + 1} expected output:`, expectedOutput);
       
       // Create the run command using heredoc to avoid escaping issues
       const runCommand = `cat > main.py << 'EOF'
@@ -215,25 +229,30 @@ echo '${input}' | python main.py`;
         const trimmedResponse = codeResponse.trim();
         const trimmedExpected = expectedOutput.trim();
         
-        console.log(`📊 [PYTHON] Test ${i + 1} - Expected: "${trimmedExpected}", Got: "${trimmedResponse}"`);
+        console.log(`📊 [PYTHON] Test ${i + 1} - Raw response: "${codeResponse}"`);
+        console.log(`📊 [PYTHON] Test ${i + 1} - Trimmed response: "${trimmedResponse}"`);
+        console.log(`📊 [PYTHON] Test ${i + 1} - Expected: "${trimmedExpected}"`);
+        console.log(`📊 [PYTHON] Test ${i + 1} - Match: ${trimmedResponse === trimmedExpected ? '✅ PASS' : '❌ FAIL'}`);
         
         if (trimmedResponse === trimmedExpected) {
           passedTests++;
-          allOutputs += `TEST_${i + 1}:PASS\n`;
+          console.log(`✅ [PYTHON] Test ${i + 1} passed!`);
         } else {
-          allOutputs += `TEST_${i + 1}:FAIL\n`;
+          console.log(`❌ [PYTHON] Test ${i + 1} failed!`);
         }
+        allOutputs += `${trimmedResponse}\n`;
+        console.log(`📝 [PYTHON] Added to allOutputs: "${trimmedResponse}"`);
         
-      } catch (error) {
-        if (error instanceof Error) {
-          console.log(`❌ [PYTHON] Test ${i + 1} error:`, error.message);
-          if (error.message === 'TLE') {
-            await container.kill();
+              } catch (error) {
+          if (error instanceof Error) {
+            console.log(`❌ [PYTHON] Test ${i + 1} error:`, error.message);
+            if (error.message === 'TLE') {
+              await container.kill();
+            }
+            allOutputs += `ERROR\n`;
+          } else {
+            allOutputs += `ERROR\n`;
           }
-          allOutputs += `TEST_${i + 1}:ERROR\n`;
-        } else {
-          allOutputs += `TEST_${i + 1}:ERROR\n`;
-        }
       } finally {
         // Remove container
         if (container) {
@@ -246,6 +265,9 @@ echo '${input}' | python main.py`;
     // Determine final status
     const status = passedTests === testCases.length ? 'SUCCESS' : 'WA';
     console.log(`✅ [PYTHON] Execution completed: ${passedTests}/${testCases.length} tests passed`);
+    console.log(`📊 [PYTHON] Final status: ${status}`);
+    console.log(`📝 [PYTHON] Final output:`, allOutputs);
+    console.log(`📝 [PYTHON] Output length:`, allOutputs.length);
     
     return { output: allOutputs, status };
     

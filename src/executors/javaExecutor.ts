@@ -108,6 +108,9 @@ function fetchDecodedStream(loggerStream: NodeJS.ReadableStream, rawLogBuffer: B
 
 export async function runJava(problem: Problem, userCode: string): Promise<ExecutionResponse> {
   console.log('🚀 [JAVA] Starting Java execution...');
+  console.log('📋 [JAVA] Problem title:', problem.title);
+  console.log('📋 [JAVA] User code length:', userCode.length);
+  console.log('📋 [JAVA] Number of test cases:', problem.testcases?.length || 0);
   
   const docker = new Docker({ socketPath: '/var/run/docker.sock' });
   let container: any = null;
@@ -115,13 +118,20 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
   try {
     // Extract the Solution class content from user code
     let solutionContent = userCode;
+    console.log('🔍 [JAVA] Original user code:', userCode.substring(0, 200) + '...');
     
     // If user provided full class, extract just the content
     if (userCode.includes('class Solution')) {
+      console.log('🔍 [JAVA] Detected full class, extracting content...');
       const classMatch = userCode.match(/class Solution\s*\{([\s\S]*)\}/);
       if (classMatch) {
         solutionContent = classMatch[1].trim();
+        console.log('🔍 [JAVA] Extracted class content length:', solutionContent.length);
+      } else {
+        console.log('⚠️ [JAVA] Could not extract class content, using full code');
       }
+    } else {
+      console.log('🔍 [JAVA] Using user code as-is (no class wrapper detected)');
     }
     
     // Extract method name from user code
@@ -129,6 +139,7 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
     const methodName = methodMatch ? methodMatch[1] : 'solve';
     
     console.log('🔍 [JAVA] Extracted method name:', methodName);
+    console.log('🔍 [JAVA] Method regex match:', methodMatch ? 'Found' : 'Not found, using default "solve"');
     
     // Build the complete Java program
     const fullCode = [
@@ -179,6 +190,7 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
     ].join('\n');
 
     console.log('📝 [JAVA] Generated code length:', fullCode.length);
+    console.log('📝 [JAVA] Generated code preview:', fullCode.substring(0, 500) + '...');
     
     // Prepare test cases
     const testCases = problem.testcases || [];
@@ -189,10 +201,12 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
     
     for (let i = 0; i < testCases.length; i++) {
       const testCase = testCases[i];
-      console.log(`🧪 [JAVA] Running test case ${i + 1}/${testCases.length}`);
-      
       const input = testCase.input;
       const expectedOutput = testCase.output;
+      
+      console.log(`🧪 [JAVA] Running test case ${i + 1}/${testCases.length}`);
+      console.log(`📥 [JAVA] Test case ${i + 1} input:`, input);
+      console.log(`📥 [JAVA] Test case ${i + 1} expected output:`, expectedOutput);
       
       // Create the run command using heredoc to avoid escaping issues
       const runCommand = `cat > Main.java << 'EOF'
@@ -227,25 +241,30 @@ javac Main.java && echo '${input}' | java Main`;
         const trimmedResponse = codeResponse.trim();
         const trimmedExpected = expectedOutput.trim();
         
-        console.log(`📊 [JAVA] Test ${i + 1} - Expected: "${trimmedExpected}", Got: "${trimmedResponse}"`);
+        console.log(`📊 [JAVA] Test ${i + 1} - Raw response: "${codeResponse}"`);
+        console.log(`📊 [JAVA] Test ${i + 1} - Trimmed response: "${trimmedResponse}"`);
+        console.log(`📊 [JAVA] Test ${i + 1} - Expected: "${trimmedExpected}"`);
+        console.log(`📊 [JAVA] Test ${i + 1} - Match: ${trimmedResponse === trimmedExpected ? '✅ PASS' : '❌ FAIL'}`);
         
         if (trimmedResponse === trimmedExpected) {
           passedTests++;
-          allOutputs += `TEST_${i + 1}:PASS\n`;
+          console.log(`✅ [JAVA] Test ${i + 1} passed!`);
         } else {
-          allOutputs += `TEST_${i + 1}:FAIL\n`;
+          console.log(`❌ [JAVA] Test ${i + 1} failed!`);
         }
+        allOutputs += `${trimmedResponse}\n`;
+        console.log(`📝 [JAVA] Added to allOutputs: "${trimmedResponse}"`);
         
-      } catch (error) {
-        if (error instanceof Error) {
-          console.log(`❌ [JAVA] Test ${i + 1} error:`, error.message);
-          if (error.message === 'TLE') {
-            await container.kill();
+              } catch (error) {
+          if (error instanceof Error) {
+            console.log(`❌ [JAVA] Test ${i + 1} error:`, error.message);
+            if (error.message === 'TLE') {
+              await container.kill();
+            }
+            allOutputs += `ERROR\n`;
+          } else {
+            allOutputs += `ERROR\n`;
           }
-          allOutputs += `TEST_${i + 1}:ERROR\n`;
-        } else {
-          allOutputs += `TEST_${i + 1}:ERROR\n`;
-        }
       } finally {
         // Remove container
         if (container) {
@@ -258,6 +277,9 @@ javac Main.java && echo '${input}' | java Main`;
     // Determine final status
     const status = passedTests === testCases.length ? 'SUCCESS' : 'WA';
     console.log(`✅ [JAVA] Execution completed: ${passedTests}/${testCases.length} tests passed`);
+    console.log(`📊 [JAVA] Final status: ${status}`);
+    console.log(`📝 [JAVA] Final output:`, allOutputs);
+    console.log(`📝 [JAVA] Output length:`, allOutputs.length);
     
     return { output: allOutputs, status };
     
