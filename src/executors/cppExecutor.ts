@@ -137,9 +137,14 @@ export async function runCpp(problem: Problem, userCode: string): Promise<Execut
     // Extract method name and parameter type from user code
     const methodMatch = userCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(([^)]*)\)/);
     const methodName = methodMatch ? methodMatch[1] : 'solve';
-    const paramType = methodMatch ? methodMatch[2].trim() : 'string';
+    const fullParam = methodMatch ? methodMatch[2].trim() : 'string s';
+    
+    // Extract just the type from the parameter (e.g., "string s" -> "string")
+    const paramTypeMatch = fullParam.match(/^(\w+(?:<.*>)?(?:\[\])?)/);
+    const paramType = paramTypeMatch ? paramTypeMatch[1] : 'string';
     
     console.log('🔍 [CPP] Extracted method name:', methodName);
+    console.log('🔍 [CPP] Full parameter:', fullParam);
     console.log('🔍 [CPP] Extracted parameter type:', paramType);
     console.log('🔍 [CPP] Method regex match:', methodMatch ? 'Found' : 'Not found, using default "solve"');
     
@@ -211,19 +216,19 @@ export async function runCpp(problem: Problem, userCode: string): Promise<Execut
       '            string arrayContent = cleanInput.substr(1, cleanInput.length() - 2);',
       '            if (arrayContent.empty()) {',
       '                // Empty array - determine type from method signature',
-      '                if (paramType.find("vector<int>") != string::npos || paramType.find("int[]") != string::npos) {',
+      '                if (paramType == "vector<int>" || paramType == "int[]") {',
       '                    vector<int> intArray;',
       '                    auto result = solution.${methodName}(intArray);',
       '                    cout << result << endl;',
-      '                } else if (paramType.find("vector<string>") != string::npos || paramType.find("string[]") != string::npos) {',
+      '                } else if (paramType == "vector<string>" || paramType == "string[]") {',
       '                    vector<string> stringArray;',
       '                    auto result = solution.${methodName}(stringArray);',
       '                    cout << result << endl;',
-      '                } else if (paramType.find("vector<double>") != string::npos || paramType.find("double[]") != string::npos) {',
+      '                } else if (paramType == "vector<double>" || paramType == "double[]") {',
       '                    vector<double> doubleArray;',
       '                    auto result = solution.${methodName}(doubleArray);',
       '                    cout << result << endl;',
-      '                } else if (paramType.find("vector<bool>") != string::npos || paramType.find("bool[]") != string::npos) {',
+      '                } else if (paramType == "vector<bool>" || paramType == "bool[]") {',
       '                    vector<bool> boolArray;',
       '                    auto result = solution.${methodName}(boolArray);',
       '                    cout << result << endl;',

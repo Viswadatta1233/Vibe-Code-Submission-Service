@@ -137,9 +137,14 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
     // Extract method name and parameter type from user code
     const methodMatch = userCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(([^)]*)\)/);
     const methodName = methodMatch ? methodMatch[1] : 'solve';
-    const paramType = methodMatch ? methodMatch[2].trim() : 'String';
+    const fullParam = methodMatch ? methodMatch[2].trim() : 'String s';
+    
+    // Extract just the type from the parameter (e.g., "String s" -> "String")
+    const paramTypeMatch = fullParam.match(/^(\w+(?:<.*>)?(?:\[\])?)/);
+    const paramType = paramTypeMatch ? paramTypeMatch[1] : 'String';
     
     console.log('🔍 [JAVA] Extracted method name:', methodName);
+    console.log('🔍 [JAVA] Full parameter:', fullParam);
     console.log('🔍 [JAVA] Extracted parameter type:', paramType);
     console.log('🔍 [JAVA] Method regex match:', methodMatch ? 'Found' : 'Not found, using default "solve"');
     
@@ -356,7 +361,41 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       '            }',
       '',
       '            // Call the solution method with parsed input',
-      `            Object result = solution.${methodName}(parsedInput);`,
+      '            Object result;',
+      '            if (paramType.contains("String")) {',
+      '                result = solution.${methodName}((String) parsedInput);',
+      '            } else if (paramType.contains("int[]")) {',
+      '                result = solution.${methodName}((int[]) parsedInput);',
+      '            } else if (paramType.contains("String[]")) {',
+      '                result = solution.${methodName}((String[]) parsedInput);',
+      '            } else if (paramType.contains("double[]")) {',
+      '                result = solution.${methodName}((double[]) parsedInput);',
+      '            } else if (paramType.contains("boolean[]")) {',
+      '                result = solution.${methodName}((boolean[]) parsedInput);',
+      '            } else if (paramType.contains("List<Integer>")) {',
+      '                result = solution.${methodName}((List<Integer>) parsedInput);',
+      '            } else if (paramType.contains("List<String>")) {',
+      '                result = solution.${methodName}((List<String>) parsedInput);',
+      '            } else if (paramType.contains("List<Double>")) {',
+      '                result = solution.${methodName}((List<Double>) parsedInput);',
+      '            } else if (paramType.contains("List<Boolean>")) {',
+      '                result = solution.${methodName}((List<Boolean>) parsedInput);',
+      '            } else if (paramType.contains("int")) {',
+      '                result = solution.${methodName}((Integer) parsedInput);',
+      '            } else if (paramType.contains("double")) {',
+      '                result = solution.${methodName}((Double) parsedInput);',
+      '            } else if (paramType.contains("float")) {',
+      '                result = solution.${methodName}((Float) parsedInput);',
+      '            } else if (paramType.contains("long")) {',
+      '                result = solution.${methodName}((Long) parsedInput);',
+      '            } else if (paramType.contains("boolean")) {',
+      '                result = solution.${methodName}((Boolean) parsedInput);',
+      '            } else if (paramType.contains("char")) {',
+      '                result = solution.${methodName}((Character) parsedInput);',
+      '            } else {',
+      '                // Default fallback - try to cast to String',
+      '                result = solution.${methodName}((String) parsedInput);',
+      '            }',
       '            System.out.println(result);',
       '        } catch (Exception e) {',
       '            System.err.println("Error: " + e.getMessage());',

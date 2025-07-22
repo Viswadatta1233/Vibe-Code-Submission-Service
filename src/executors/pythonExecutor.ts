@@ -139,8 +139,13 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
     const methodName = methodMatch ? methodMatch[1] : 'solve';
     const returnType = methodMatch ? methodMatch[2].trim() : 'Any';
     
+    // Also try to extract parameter info for better type detection
+    const paramMatch = userCode.match(/def\s+\w+\s*\(([^)]*)\)/);
+    const paramInfo = paramMatch ? paramMatch[1].trim() : '';
+    
     console.log('🔍 [PYTHON] Extracted method name:', methodName);
     console.log('🔍 [PYTHON] Extracted return type:', returnType);
+    console.log('🔍 [PYTHON] Parameter info:', paramInfo);
     console.log('🔍 [PYTHON] Method regex match:', methodMatch ? 'Found' : 'Not found, using default "solve"');
     
     // Build the complete Python program
@@ -175,6 +180,7 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
       '        # Parse input based on format and method signature',
       '        parsed_input = None',
       '        return_type = "${returnType}"',
+      '        param_info = "${paramInfo}"',
       '',
       '        if clean_input.startswith(\'[\') and clean_input.endswith(\']\'):',
       '            # Parse array/list input',
@@ -222,6 +228,29 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
       '                    parsed_input = int(clean_input)',
       '            except ValueError:',
       '                parsed_input = clean_input',
+      '',
+      '        # Ensure the parsed input matches the expected type if possible',
+      '        if param_info and "List" in param_info:',
+      '            if not isinstance(parsed_input, list):',
+      '                parsed_input = [parsed_input]',
+      '        elif param_info and "str" in param_info:',
+      '            if not isinstance(parsed_input, str):',
+      '                parsed_input = str(parsed_input)',
+      '        elif param_info and "int" in param_info:',
+      '            if not isinstance(parsed_input, int):',
+      '                try:',
+      '                    parsed_input = int(parsed_input)',
+      '                except (ValueError, TypeError):',
+      '                    pass  # Keep original if conversion fails',
+      '        elif param_info and "float" in param_info:',
+      '            if not isinstance(parsed_input, float):',
+      '                try:',
+      '                    parsed_input = float(parsed_input)',
+      '                except (ValueError, TypeError):',
+      '                    pass  # Keep original if conversion fails',
+      '        elif param_info and "bool" in param_info:',
+      '            if not isinstance(parsed_input, bool):',
+      '                parsed_input = bool(parsed_input)',
       '',
       `        result = solution.${methodName}(parsed_input)`,
       '        print(result)',
