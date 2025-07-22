@@ -181,17 +181,23 @@ int main() {
     // Create solution instance
     Solution solution;
     
-    // Execute and print result
-    try {
-        auto result = solution.${methodName}(input);
-        cout << result << endl;
-    } catch (const exception& e) {
-        cerr << "Error: " << e.what() << endl;
-    }
+            // Execute and print result
+        try {
+            // Remove quotes from input if present
+            string cleanInput = input;
+            if (input.length() >= 2 && input[0] == '"' && input[input.length()-1] == '"') {
+                cleanInput = input.substr(1, input.length() - 2);
+            }
+            
+            auto result = solution.${methodName}(cleanInput);
+            cout << result << endl;
+        } catch (const exception& e) {
+            cerr << "Error: " << e.what() << endl;
+        }
     
     return 0;
 }`;
-
+  
     console.log('📝 [CPP] Generated code length:', fullCode.length);
     
     // Prepare test cases
@@ -254,7 +260,7 @@ g++ -std=c++17 -O2 -o main main.cpp && echo '${input}' | ./main`;
         if (error instanceof Error) {
           console.log(`❌ [CPP] Test ${i + 1} error:`, error.message);
           if (error.message === 'TLE') {
-            await container.kill();
+          await container.kill();
           }
           allOutputs += `TEST_${i + 1}:ERROR\n`;
         } else {
@@ -263,7 +269,7 @@ g++ -std=c++17 -O2 -o main main.cpp && echo '${input}' | ./main`;
       } finally {
         // Remove container
         if (container) {
-          await container.remove();
+        await container.remove();
           container = null;
         }
       }
@@ -286,7 +292,7 @@ g++ -std=c++17 -O2 -o main main.cpp && echo '${input}' | ./main`;
     // Ensure container is removed
     if (container) {
       try {
-        await container.remove();
+          await container.remove();
       } catch (error) {
         console.error('❌ [CPP] Failed to remove container:', error);
       }

@@ -116,20 +116,27 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
           continue;
         }
         
-        // Parse output line format: "TEST_1:result"
-        const match = outputLine.match(/TEST_\d+:(.+)/);
-        if (!match) {
-          testResults.push({ 
-            testcase, 
-            output: outputLine, 
-            passed: false, 
-            error: 'Invalid output format' 
-          });
-          status = 'WA';
-          continue;
+        // Handle both formats: "TEST_1:result" and direct result
+        let actualOutput;
+        if (outputLine.includes('TEST_')) {
+          // Parse output line format: "TEST_1:result"
+          const match = outputLine.match(/TEST_\d+:(.+)/);
+          if (!match) {
+            testResults.push({ 
+              testcase, 
+              output: outputLine, 
+              passed: false, 
+              error: 'Invalid output format' 
+            });
+            status = 'WA';
+            continue;
+          }
+          actualOutput = match[1].trim();
+        } else {
+          // Direct result format (new format)
+          actualOutput = outputLine.trim();
         }
         
-        const actualOutput = match[1].trim();
         const expectedOutput = testcase.output.trim();
         const passed = actualOutput === expectedOutput;
         

@@ -157,8 +157,14 @@ public class Main {
         
         // Execute and print result
         try {
-            // Call the solution method with input
-            Object result = solution.${methodName}(input);
+            // Remove quotes from input if present
+            String cleanInput = input;
+            if (input.startsWith("\"") && input.endsWith("\"")) {
+                cleanInput = input.substring(1, input.length() - 1);
+            }
+            
+            // Call the solution method with cleaned input
+            Object result = solution.${methodName}(cleanInput);
             System.out.println(result);
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
@@ -241,7 +247,7 @@ javac Main.java && echo '${input}' | java Main`;
       } finally {
         // Remove container
         if (container) {
-          await container.remove();
+    await container.remove();
           container = null;
         }
       }

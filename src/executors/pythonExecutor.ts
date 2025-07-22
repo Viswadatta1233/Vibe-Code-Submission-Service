@@ -149,12 +149,17 @@ def main():
     # Create solution instance
     solution = Solution()
     
-    # Execute and print result
-    try:
-        result = solution.${methodName}(input_data)
-        print(result)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+            # Execute and print result
+        try:
+            # Remove quotes from input if present
+            clean_input = input_data
+            if input_data.startswith('"') and input_data.endswith('"'):
+                clean_input = input_data[1:-1]
+            
+            result = solution.${methodName}(clean_input)
+            print(result)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()`;
