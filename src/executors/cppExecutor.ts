@@ -158,10 +158,13 @@ export async function runCpp(
     const stats = fs.statSync(filepath);
     console.log('📊 [CPP-DOCKER] File size:', stats.size, 'bytes');
     console.log('📊 [CPP-DOCKER] File exists:', fs.existsSync(filepath));
+    console.log('📊 [CPP-DOCKER] File is file:', stats.isFile());
+    console.log('📊 [CPP-DOCKER] File permissions:', stats.mode.toString(8));
 
-    // Convert Windows path to Unix path for Docker
+    // Convert Windows path to Unix path for Docker and ensure it's absolute
     const unixPath = filepath.replace(/\\/g, '/');
-    console.log('🔄 [CPP-DOCKER] Unix path for Docker:', unixPath);
+    const absoluteUnixPath = unixPath.startsWith('/') ? unixPath : `/${unixPath}`;
+    console.log('🔄 [CPP-DOCKER] Unix path for Docker:', absoluteUnixPath);
 
     // Pull C++ image if not exists
     console.log('📦 [CPP-DOCKER] Pulling C++ image...');
@@ -179,7 +182,7 @@ export async function runCpp(
         CpuPeriod: 100000,
         CpuQuota: 50000, // 50% CPU limit
         NetworkMode: 'none', // No network access
-        Binds: [`${unixPath}:/tmp/${filename}:ro`], // Read-only mount with Unix path
+        Binds: [`${absoluteUnixPath}:/tmp/${filename}:ro`], // Read-only mount with absolute Unix path
         SecurityOpt: ['no-new-privileges'],
         CapDrop: ['ALL']
       },

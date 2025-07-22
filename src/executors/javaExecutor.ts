@@ -138,10 +138,13 @@ export async function runJava(
     const stats = fs.statSync(filepath);
     console.log('📊 [JAVA-DOCKER] File size:', stats.size, 'bytes');
     console.log('📊 [JAVA-DOCKER] File exists:', fs.existsSync(filepath));
+    console.log('📊 [JAVA-DOCKER] File is file:', stats.isFile());
+    console.log('📊 [JAVA-DOCKER] File permissions:', stats.mode.toString(8));
 
-    // Convert Windows path to Unix path for Docker
+    // Convert Windows path to Unix path for Docker and ensure it's absolute
     const unixPath = filepath.replace(/\\/g, '/');
-    console.log('🔄 [JAVA-DOCKER] Unix path for Docker:', unixPath);
+    const absoluteUnixPath = unixPath.startsWith('/') ? unixPath : `/${unixPath}`;
+    console.log('🔄 [JAVA-DOCKER] Unix path for Docker:', absoluteUnixPath);
 
     // Pull Java image if not exists
     console.log('📦 [JAVA-DOCKER] Pulling Java image...');
@@ -162,7 +165,7 @@ export async function runJava(
         CpuPeriod: 100000,
         CpuQuota: 50000, // 50% CPU limit
         NetworkMode: 'none', // No network access
-        Binds: [`${unixPath}:/tmp/${filename}:ro`], // Read-only mount with Unix path
+        Binds: [`${absoluteUnixPath}:/tmp/${filename}:ro`], // Read-only mount with absolute Unix path
         SecurityOpt: ['no-new-privileges'],
         CapDrop: ['ALL']
       },

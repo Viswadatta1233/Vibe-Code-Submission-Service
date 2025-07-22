@@ -138,10 +138,13 @@ export async function runPython(
     const stats = fs.statSync(filepath);
     console.log('📊 [PYTHON-DOCKER] File size:', stats.size, 'bytes');
     console.log('📊 [PYTHON-DOCKER] File exists:', fs.existsSync(filepath));
+    console.log('📊 [PYTHON-DOCKER] File is file:', stats.isFile());
+    console.log('📊 [PYTHON-DOCKER] File permissions:', stats.mode.toString(8));
 
-    // Convert Windows path to Unix path for Docker
+    // Convert Windows path to Unix path for Docker and ensure it's absolute
     const unixPath = filepath.replace(/\\/g, '/');
-    console.log('🔄 [PYTHON-DOCKER] Unix path for Docker:', unixPath);
+    const absoluteUnixPath = unixPath.startsWith('/') ? unixPath : `/${unixPath}`;
+    console.log('🔄 [PYTHON-DOCKER] Unix path for Docker:', absoluteUnixPath);
 
     // Pull Python image if not exists
     console.log('📦 [PYTHON-DOCKER] Pulling Python image...');
@@ -159,7 +162,7 @@ export async function runPython(
         CpuPeriod: 100000,
         CpuQuota: 50000, // 50% CPU limit
         NetworkMode: 'none', // No network access
-        Binds: [`${unixPath}:/tmp/${filename}:ro`], // Read-only mount with Unix path
+        Binds: [`${absoluteUnixPath}:/tmp/${filename}:ro`], // Read-only mount with absolute Unix path
         SecurityOpt: ['no-new-privileges'],
         CapDrop: ['ALL']
       },
