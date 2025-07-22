@@ -194,11 +194,16 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       '                cleanInput = cleanInput.substring(1, cleanInput.length() - 1);',
       '            }',
       '            System.out.println("DEBUG: cleanInput = " + cleanInput);',
+      '            System.out.println("DEBUG: cleanInput.length() = " + cleanInput.length());',
+      '            System.out.println("DEBUG: cleanInput.startsWith(\"[\\\") = " + cleanInput.startsWith("["));',
+      '            System.out.println("DEBUG: cleanInput.endsWith(\"\\]\") = " + cleanInput.endsWith("]"));',
+      '            System.out.println("DEBUG: cleanInput.length() > 2 = " + (cleanInput.length() > 2));',
       '',
       '            Object parsedInput;',
       '',
       '            // First, check if this is a string input (most common case)',
       '            if (paramType.equals("String")) {',
+      '                System.out.println("DEBUG: String parameter detected - using cleanInput directly");',
       '                // For String parameters, use the clean input directly',
       '                parsedInput = cleanInput;',
       '                System.out.println("DEBUG: String parameter detected, parsedInput = " + parsedInput);',
@@ -499,6 +504,32 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
     // Prepare test cases
     const testCases = problem.testcases || [];
     console.log(`🧪 [JAVA] Processing ${testCases.length} test cases`);
+    
+    // Debug: Test the first input to understand what's happening
+    if (testCases.length > 0) {
+      const firstInput = testCases[0].input;
+      console.log('🔍 [JAVA] DEBUG: Testing first input:', firstInput);
+      console.log('🔍 [JAVA] DEBUG: Input type:', typeof firstInput);
+      console.log('🔍 [JAVA] DEBUG: Input length:', firstInput.length);
+      console.log('🔍 [JAVA] DEBUG: Input starts with [:', firstInput.startsWith('['));
+      console.log('🔍 [JAVA] DEBUG: Input ends with ]:', firstInput.endsWith(']'));
+      console.log('🔍 [JAVA] DEBUG: Input starts with ":', firstInput.startsWith('"'));
+      console.log('🔍 [JAVA] DEBUG: Input ends with ":', firstInput.endsWith('"'));
+      
+      // Simulate the cleanInput logic
+      let cleanInput = firstInput;
+      if (cleanInput.startsWith('"') && cleanInput.endsWith('"')) {
+        cleanInput = cleanInput.substring(1, cleanInput.length() - 1);
+      }
+      console.log('🔍 [JAVA] DEBUG: After quote removal:', cleanInput);
+      console.log('🔍 [JAVA] DEBUG: Clean input starts with [:', cleanInput.startsWith('['));
+      console.log('🔍 [JAVA] DEBUG: Clean input ends with ]:', cleanInput.endsWith(']'));
+      console.log('🔍 [JAVA] DEBUG: Clean input length > 2:', cleanInput.length > 2);
+      
+      // Debug: Show the exact generated code for this test case
+      console.log('🔍 [JAVA] DEBUG: Full generated code:');
+      console.log(fullCode);
+    }
     
     let allOutputs = '';
     let passedTests = 0;
