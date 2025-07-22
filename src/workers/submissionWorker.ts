@@ -97,7 +97,7 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
       console.log('📤 [WORKER] Execution result:', execResult);
       
       // Parse the output to extract test results
-      const outputLines = execResult.stdout.trim().split('\n');
+      const outputLines = execResult.output.trim().split('\n');
       const testResults = [];
       
       for (let i = 0; i < testcases.length; i++) {

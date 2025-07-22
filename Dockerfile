@@ -13,8 +13,11 @@ RUN npm ci --include=dev
 # Copy source code
 COPY src/ ./src/
 
-# Build TypeScript
-RUN npm run build || (echo "TypeScript compilation failed. Check the errors above." && exit 1)
+# Debug: List files to ensure everything is copied
+RUN echo "=== Source files ===" && find . -name "*.ts" | head -20
+
+# Build TypeScript with verbose output
+RUN npm run build 2>&1 || (echo "TypeScript compilation failed. Check the errors above." && exit 1)
 
 # Production stage for main service
 FROM node:18-alpine AS production

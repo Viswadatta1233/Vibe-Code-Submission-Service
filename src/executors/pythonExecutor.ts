@@ -1,22 +1,5 @@
 import Docker from 'dockerode';
-
-interface TestCase {
-  input: string;
-  output: string;
-}
-
-interface CodeStub {
-  language: string;
-  startSnippet: string;
-  userSnippet: string;
-  endSnippet: string;
-}
-
-interface Problem {
-  title: string;
-  testcases: TestCase[];
-  codeStubs: CodeStub[];
-}
+import { Problem, ExecutionResponse } from '../types';
 
 const PYTHON_IMAGE = 'python:3.9-slim';
 
@@ -124,7 +107,7 @@ function fetchDecodedStream(loggerStream: NodeJS.ReadableStream, rawLogBuffer: B
   });
 }
 
-export async function runPython(problem: Problem, userCode: string): Promise<{ output: string; status: string }> {
+export async function runPython(problem: Problem, userCode: string): Promise<ExecutionResponse> {
   console.log('🚀 [PYTHON] Starting Python execution...');
   
   const docker = new Docker({ socketPath: '/var/run/docker.sock' });
