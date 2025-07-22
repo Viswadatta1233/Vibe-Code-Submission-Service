@@ -133,12 +133,12 @@ export async function runCpp(
 
     // Pull C++ image if not exists
     console.log('📦 [CPP-DOCKER] Pulling C++ image...');
-    await docker.pull('gcc:11-slim');
+    await docker.pull('gcc:latest');
 
     // Create container
     console.log('🐳 [CPP-DOCKER] Creating container...');
     const container = await docker.createContainer({
-      Image: 'gcc:11-slim',
+      Image: 'gcc:latest',
       name: containerName,
       Cmd: ['sh', '-c', `cd /tmp && g++ -std=c++17 -o solution ${filename} && ./solution`],
       HostConfig: {
