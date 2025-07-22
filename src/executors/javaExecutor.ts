@@ -435,7 +435,7 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       '            Object result;',
       '            System.out.println("DEBUG: About to call method with paramType: " + paramType);',
       '            if (paramType.equals("String")) {',
-      `                result = solution.${methodName}((String) parsedInput);`,
+      `                result = solution.${methodName}((String) parsedInput);b`,
       '                System.out.println("DEBUG: Called with String cast");',
       '            } else if (paramType.equals("int[]")) {',
       `                result = solution.${methodName}((int[]) parsedInput);`,
@@ -590,20 +590,20 @@ javac Main.java && echo '${input}' | java Main`;
         allOutputs += `${trimmedResponse}\n`;
         console.log(`📝 [JAVA] Added to allOutputs: "${trimmedResponse}"`);
         
-              } catch (error) {
-          if (error instanceof Error) {
-            console.log(`❌ [JAVA] Test ${i + 1} error:`, error.message);
-            if (error.message === 'TLE') {
-              await container.kill();
-            }
-            allOutputs += `ERROR\n`;
-          } else {
-            allOutputs += `ERROR\n`;
+      } catch (error) {
+        if (error instanceof Error) {
+          console.log(`❌ [JAVA] Test ${i + 1} error:`, error.message);
+          if (error.message === 'TLE') {
+            await container.kill();
           }
+          allOutputs += `ERROR\n`;
+        } else {
+          allOutputs += `ERROR\n`;
+        }
       } finally {
         // Remove container
         if (container) {
-    await container.remove();
+          await container.remove();
           container = null;
         }
       }
