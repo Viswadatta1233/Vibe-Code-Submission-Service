@@ -124,6 +124,12 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       }
     }
     
+    // Extract method name from user code
+    const methodMatch = userCode.match(/public\s+(?:static\s+)?(?:int|long|double|float|boolean|String|void|List<.*>|int\[\]|long\[\]|double\[\]|float\[\]|boolean\[\]|String\[\])\s+(\w+)\s*\(/);
+    const methodName = methodMatch ? methodMatch[1] : 'solve';
+    
+    console.log('🔍 [JAVA] Extracted method name:', methodName);
+    
     // Build the complete Java program
     const fullCode = `import java.util.*;
 import java.util.Stack;
@@ -152,7 +158,7 @@ public class Main {
         // Execute and print result
         try {
             // Call the solution method with input
-            String result = solution.solve(input);
+            Object result = solution.${methodName}(input);
             System.out.println(result);
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());

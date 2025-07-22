@@ -124,6 +124,12 @@ export async function runCpp(problem: Problem, userCode: string): Promise<Execut
       }
     }
     
+    // Extract method name from user code
+    const methodMatch = userCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(/);
+    const methodName = methodMatch ? methodMatch[1] : 'solve';
+    
+    console.log('🔍 [CPP] Extracted method name:', methodName);
+    
     // Build the complete C++ program
     const fullCode = `#include <iostream>
 #include <vector>
@@ -177,7 +183,7 @@ int main() {
     
     // Execute and print result
     try {
-        string result = solution.solve(input);
+        auto result = solution.${methodName}(input);
         cout << result << endl;
     } catch (const exception& e) {
         cerr << "Error: " << e.what() << endl;

@@ -124,6 +124,12 @@ export async function runPython(problem: Problem, userCode: string): Promise<Exe
       }
     }
     
+    // Extract method name from user code
+    const methodMatch = userCode.match(/def\s+(\w+)\s*\(/);
+    const methodName = methodMatch ? methodMatch[1] : 'solve';
+    
+    console.log('🔍 [PYTHON] Extracted method name:', methodName);
+    
     // Build the complete Python program
     const fullCode = `# Common imports for coding problems
 import sys
@@ -145,7 +151,7 @@ def main():
     
     # Execute and print result
     try:
-        result = solution.solve(input_data)
+        result = solution.${methodName}(input_data)
         print(result)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
