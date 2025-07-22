@@ -54,16 +54,15 @@ async function createContainer(docker: any, image: string, cmd: string[]): Promi
       OpenStdin: true,
       StdinOnce: false,
       Tty: false,
-      HostConfig: {
-        Memory: 512 * 1024 * 1024, // 512MB
-        MemorySwap: 0,
-        CpuPeriod: 100000,
-        CpuQuota: 50000, // 50% CPU
-        NetworkMode: 'none',
-        SecurityOpt: ['no-new-privileges'],
-        ReadonlyRootfs: true,
-        Binds: []
-      }
+              HostConfig: {
+          Memory: 512 * 1024 * 1024, // 512MB
+          MemorySwap: 0,
+          CpuPeriod: 100000,
+          CpuQuota: 50000, // 50% CPU
+          NetworkMode: 'none',
+          SecurityOpt: ['no-new-privileges'],
+          Binds: []
+        }
     });
     console.log(`✅ [CPP] Container created: ${container.id}`);
     return container;
