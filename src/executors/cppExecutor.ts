@@ -199,12 +199,26 @@ using namespace std;
   const testRunner = generateCppTestRunner(testcases, functionName, userCode);
   console.log('📝 [CPP-GENERATE] Test runner length:', testRunner.length);
   
+  // Check if user code already contains class structure
+  const userCodeContainsClass = userCode.includes('class Solution') && userCode.includes('public:');
+  
   // Combine the code with test runner
-  const completeCode = `${includes}${startSnippet}
+  let completeCode;
+  if (userCodeContainsClass) {
+    // User code already has class structure, just add our includes and test runner
+    // Remove the closing brace from user code and add test runner inside
+    const userCodeWithoutClosing = userCode.replace(/}\s*;\s*$/, '').trim();
+    completeCode = `${includes}${userCodeWithoutClosing}
+
+${testRunner}`;
+  } else {
+    // Use database snippets as before
+    completeCode = `${includes}${startSnippet}
 ${userCode}
 ${endSnippet}
 
 ${testRunner}`;
+  }
   
   console.log('📝 [CPP-GENERATE] Complete code length:', completeCode.length);
   console.log('✅ [CPP-GENERATE] Code generation completed');
@@ -217,10 +231,25 @@ function generateCppTestRunner(testcases: any[], functionName: string, userCode:
   const parameterType = extractParameterType(userCode, functionName);
   console.log('🔍 [CPP-TESTGEN] Detected parameter type:', parameterType);
   
-  let testRunner = `int main() {
+  // Check if user code contains class structure
+  const userCodeContainsClass = userCode.includes('class Solution') && userCode.includes('public:');
+  
+  let testRunner;
+  if (userCodeContainsClass) {
+    // Close the class and add main function
+    testRunner = `};
+
+int main() {
     Solution solution;
     
 `;
+  } else {
+    // Just add main function
+    testRunner = `int main() {
+    Solution solution;
+    
+`;
+  }
 
   // Add individual test cases
   testcases.forEach((testcase, index) => {

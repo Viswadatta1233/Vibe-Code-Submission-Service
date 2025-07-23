@@ -192,11 +192,23 @@ from heapq import heappush, heappop, heapify
   const testRunner = generatePythonTestRunner(testcases, functionName, userCode);
   console.log('📝 [PYTHON-GENERATE] Test runner length:', testRunner.length);
   
+  // Check if user code already contains class structure
+  const userCodeContainsClass = userCode.includes('class Solution');
+  
   // Combine the code with test runner
-  const completeCode = `${imports}${startSnippet}${userCode}
+  let completeCode;
+  if (userCodeContainsClass) {
+    // User code already has class structure, just add our imports and test runner
+    completeCode = `${imports}${userCode}
+
+${testRunner}`;
+  } else {
+    // Use database snippets as before
+    completeCode = `${imports}${startSnippet}${userCode}
 ${endSnippet}
 
 ${testRunner}`;
+  }
   
   console.log('📝 [PYTHON-GENERATE] Complete code length:', completeCode.length);
   console.log('✅ [PYTHON-GENERATE] Code generation completed');
