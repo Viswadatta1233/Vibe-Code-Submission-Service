@@ -594,24 +594,48 @@ function parseJavaOutput(output: string, expectedTestCount: number): string[] {
   const lines = output.trim().split('\n');
   const results: string[] = [];
   
-  // Search for TEST_X patterns anywhere in the output
+  // Search for TEST_X patterns that are actual execution results (not source code)
   for (let i = 1; i <= expectedTestCount; i++) {
     const testPattern = `TEST_${i}:`;
     let found = false;
     
     for (const line of lines) {
-      if (line.includes(testPattern)) {
-        const result = line.substring(line.indexOf(testPattern) + testPattern.length);
+      const trimmedLine = line.trim();
+      // Look for lines that start with TEST_X: and don't contain Java code patterns
+      if (trimmedLine.startsWith(testPattern) && 
+          !trimmedLine.includes('" + ') && 
+          !trimmedLine.includes('System.out.println') &&
+          !trimmedLine.includes('resultStr')) {
+        const result = trimmedLine.substring(testPattern.length);
         results.push(result);
-        console.log(`🔍 [JAVA-PARSE] Found ${testPattern}${result}`);
+        console.log(`🔍 [JAVA-PARSE] Found execution result: ${testPattern}${result}`);
         found = true;
         break;
       }
     }
     
     if (!found) {
-      console.log(`❌ [JAVA-PARSE] Missing ${testPattern}`);
-      results.push('');
+      console.log(`❌ [JAVA-PARSE] Missing execution result for ${testPattern}`);
+      // Try to find it in a different way - look for the pattern after "=== Running ==="
+      const runningIndex = output.indexOf('=== Running ===');
+      if (runningIndex !== -1) {
+        const executionOutput = output.substring(runningIndex);
+        const executionLines = executionOutput.split('\n');
+        for (const execLine of executionLines) {
+          const trimmedExecLine = execLine.trim();
+          if (trimmedExecLine.startsWith(testPattern)) {
+            const result = trimmedExecLine.substring(testPattern.length);
+            results.push(result);
+            console.log(`🔍 [JAVA-PARSE] Found in execution section: ${testPattern}${result}`);
+            found = true;
+            break;
+          }
+        }
+      }
+      
+      if (!found) {
+        results.push('');
+      }
     }
   }
   
