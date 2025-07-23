@@ -284,20 +284,16 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       await pullDockerImage('openjdk:11-jdk-slim');
       console.log('✅ [JAVA-DOCKER] Docker image ready');
       
-      // Use bind mount approach - create temp directory and mount it
+      // Use bind mount approach - mount file directly to fixed location
       console.log('📁 [JAVA-DOCKER] Using bind mount approach...');
       
-      // Create a subdirectory in temp and copy file there
-      const tempDir = require('path').join(require('os').tmpdir(), `java_${Date.now()}`);
-      const containerFilePath = require('path').join(tempDir, 'Solution.java');
+      // Mount the file directly to a fixed location in container
+      const containerFilePath = '/tmp/java/Solution.java';
       
-      console.log('📁 [JAVA-DOCKER] Creating temp directory:', tempDir);
-      require('fs').mkdirSync(tempDir, { recursive: true });
-      require('fs').copyFileSync(tempFile, containerFilePath);
-      
-      console.log('📁 [JAVA-DOCKER] File copied to temp directory:', containerFilePath);
-      console.log('📁 [JAVA-DOCKER] Temp directory contents:', require('fs').readdirSync(tempDir));
-      console.log('📁 [JAVA-DOCKER] Bind mount path:', `${tempDir}:/tmp/java:ro`);
+      console.log('📁 [JAVA-DOCKER] Source file:', tempFile);
+      console.log('📁 [JAVA-DOCKER] Container path:', containerFilePath);
+      console.log('📁 [JAVA-DOCKER] Bind mount path:', `${tempFile}:${containerFilePath}:ro`);
+      console.log('📁 [JAVA-DOCKER] Source file exists:', require('fs').existsSync(tempFile));
       
       // Create container with bind mount
       console.log('🐳 [JAVA-DOCKER] Creating container with bind mount...');
@@ -305,7 +301,7 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
         Image: 'openjdk:11-jdk-slim',
         Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /tmp ===" && ls -la /tmp && echo "=== Listing /tmp/java ===" && ls -la /tmp/java && echo "=== Copying file ===" && cp /tmp/java/Solution.java /app/ && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
         HostConfig: {
-          Binds: [`${tempDir}:/tmp/java:ro`],
+          Binds: [`${tempFile}:${containerFilePath}:ro`],
           Memory: 512 * 1024 * 1024, // 512MB memory limit
           MemorySwap: 0,
           CpuPeriod: 100000,
