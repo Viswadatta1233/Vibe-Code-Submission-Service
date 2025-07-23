@@ -299,20 +299,31 @@ function extractParameterType(userCode: string, functionName: string): string {
     const parameters = match[1].trim();
     console.log('🔍 [PYTHON-EXTRACT] Found parameters:', parameters);
     
-    // Extract the type from parameter patterns
-    if (parameters.includes('nums') || parameters.includes('List') || parameters.includes('list')) {
-      console.log('🔍 [PYTHON-EXTRACT] Detected type: List[int]');
-      return 'List[int]';
-    } else if (parameters.includes('x') && !parameters.includes('s')) {
-      console.log('🔍 [PYTHON-EXTRACT] Detected type: int');
-      return 'int';
-    } else if (parameters.includes('s') || parameters.includes('str')) {
-      console.log('🔍 [PYTHON-EXTRACT] Detected type: str');
-      return 'str';
+    // Split parameters and analyze the second parameter (first is usually 'self')
+    const paramList = parameters.split(',').map(p => p.trim());
+    console.log('🔍 [PYTHON-EXTRACT] Parameter list:', paramList);
+    
+    if (paramList.length > 1) {
+      const mainParam = paramList[1]; // Skip 'self', get the actual parameter
+      console.log('🔍 [PYTHON-EXTRACT] Main parameter:', mainParam);
+      
+      // Analyze parameter name patterns dynamically
+      if (mainParam.includes('nums') || mainParam.includes('arr') || mainParam.includes('array') ||
+          mainParam.includes('list') || mainParam.includes('List')) {
+        console.log('🔍 [PYTHON-EXTRACT] Detected type: List[int] (array-like parameter)');
+        return 'List[int]';
+      } else if (mainParam.length === 1 && /^[a-z]$/.test(mainParam) && mainParam !== 's') {
+        // Single letter parameter (except 's') usually indicates integer (x, n, k, etc.)
+        console.log('🔍 [PYTHON-EXTRACT] Detected type: int (single letter parameter)');
+        return 'int';
+      } else if (mainParam === 's' || mainParam.includes('str') || mainParam.includes('string')) {
+        console.log('🔍 [PYTHON-EXTRACT] Detected type: str (string parameter)');
+        return 'str';
+      }
     }
   }
   
-  console.log('🔍 [PYTHON-EXTRACT] No match found, defaulting to str');
+  console.log('🔍 [PYTHON-EXTRACT] No clear pattern found, defaulting to str');
   return 'str';
 }
 
