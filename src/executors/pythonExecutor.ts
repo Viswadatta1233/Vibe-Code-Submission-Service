@@ -203,8 +203,17 @@ from heapq import heappush, heappop, heapify
 
 ${testRunner}`;
   } else {
-    // Use database snippets as before
-    completeCode = `${imports}${startSnippet}${userCode}
+    // User code needs to be properly indented inside the class
+    // Add 4 spaces to each line of user code for proper indentation
+    const indentedUserCode = userCode.split('\n').map(line => {
+      // Don't indent empty lines
+      if (line.trim() === '') return line;
+      // Add 4 spaces for class indentation
+      return '    ' + line;
+    }).join('\n');
+    
+    // Use database snippets with properly indented user code
+    completeCode = `${imports}${startSnippet}${indentedUserCode}
 ${endSnippet}
 
 ${testRunner}`;
