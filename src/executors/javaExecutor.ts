@@ -53,7 +53,7 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
 
     return result;
   } catch (error: any) {
-    console.error('❌ [JAVA] Execution failed:', error);
+    console.error('❌ [JAVA]"""""" Execution faileds:', error);
     throw error;
   }
 }
