@@ -587,20 +587,35 @@ function removeDockerHeaders(data: string): string {
 }
 
 function parseJavaOutput(output: string, expectedTestCount: number): string[] {
+  console.log('🔍 [JAVA-PARSE] Parsing output for', expectedTestCount, 'test cases');
+  console.log('🔍 [JAVA-PARSE] Output length:', output.length);
+  console.log('🔍 [JAVA-PARSE] Output preview:', output.substring(output.length - 500));
+  
   const lines = output.trim().split('\n');
   const results: string[] = [];
   
-  for (let i = 0; i < expectedTestCount; i++) {
-    const line = lines[i];
-    if (line && line.startsWith(`TEST_${i + 1}:`)) {
-      const result = line.substring(`TEST_${i + 1}:`.length);
-      results.push(result);
-    } else {
-      // Missing or malformed output
+  // Search for TEST_X patterns anywhere in the output
+  for (let i = 1; i <= expectedTestCount; i++) {
+    const testPattern = `TEST_${i}:`;
+    let found = false;
+    
+    for (const line of lines) {
+      if (line.includes(testPattern)) {
+        const result = line.substring(line.indexOf(testPattern) + testPattern.length);
+        results.push(result);
+        console.log(`🔍 [JAVA-PARSE] Found ${testPattern}${result}`);
+        found = true;
+        break;
+      }
+    }
+    
+    if (!found) {
+      console.log(`❌ [JAVA-PARSE] Missing ${testPattern}`);
       results.push('');
     }
   }
   
+  console.log('🔍 [JAVA-PARSE] Final parsed results:', results);
   return results;
 }
 
