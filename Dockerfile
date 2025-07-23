@@ -1,5 +1,5 @@
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -7,8 +7,12 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Install dependencies (including dev dependencies for build)
-RUN npm ci
+# Debug: Check if files are copied
+RUN ls -la && echo "=== Package.json content ===" && cat package.json
+
+# Clear npm cache and install dependencies
+RUN npm cache clean --force
+RUN npm install
 
 # Copy source code
 COPY src/ ./src/
@@ -20,7 +24,7 @@ RUN echo "=== Source files ===" && find . -name "*.ts" | head -20
 RUN npm run build 2>&1 || (echo "TypeScript compilation failed. Check the errors above." && exit 1)
 
 # Production stage for main service
-FROM node:18-alpine AS production
+FROM node:20-alpine AS production
 
 # Install Docker for Docker-in-Docker execution
 RUN apk add --no-cache \
@@ -42,7 +46,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install production dependencies only
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --only=production && npm cache clean --force
 
 # Copy built application
 COPY --from=builder /app/dist ./dist
