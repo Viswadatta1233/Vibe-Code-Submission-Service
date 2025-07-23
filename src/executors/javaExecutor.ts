@@ -31,11 +31,14 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
     // Generate complete code with test runner
     const completeCode = generateJavaCode(stub, userCode, problem.testcases, functionName);
     console.log('📝 [JAVA] Generated complete code');
+    console.log('📝 [JAVA] Code preview (first 500 chars):', completeCode.substring(0, 500));
 
     // Create temporary file
     const tempFile = join(tmpdir(), `Solution_${uuidv4()}.java`);
     await writeFile(tempFile, completeCode, 'utf8');
     console.log('💾 [JAVA] Created temp file:', tempFile);
+    console.log('💾 [JAVA] File size:', completeCode.length, 'bytes');
+    console.log('💾 [JAVA] File exists:', require('fs').existsSync(tempFile));
 
     // Execute in Docker container
     const result = await executeJavaInDocker(tempFile, problem.testcases.length);
@@ -70,8 +73,15 @@ function generateJavaCode(stub: any, userCode: string, testcases: any[], functio
   const startSnippet = stub.startSnippet || '';
   const endSnippet = stub.endSnippet || '';
   
+  // Add necessary imports
+  const imports = `import java.util.*;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
+
+`;
+  
   // Combine the code
-  const solutionCode = `${startSnippet}\n${userCode}\n${endSnippet}`;
+  const solutionCode = `${imports}${startSnippet}\n${userCode}\n${endSnippet}`;
   
   // Generate test runner
   const testRunner = generateJavaTestRunner(testcases, functionName);
@@ -153,7 +163,7 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       // Create container
       const container = await docker.createContainer({
         Image: 'openjdk:11-jdk-slim',
-        Cmd: ['sh', '-c', 'cd /app && javac Solution.java && java Solution'],
+        Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /app ===" && ls -la /app && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
         HostConfig: {
           Binds: [`${tempFile}:/app/Solution.java:ro`],
           Memory: 512 * 1024 * 1024, // 512MB memory limit
@@ -174,6 +184,7 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       });
 
       console.log('🐳 [JAVA] Created Docker container:', container.id);
+      console.log('🐳 [JAVA] Bind mount:', `${tempFile}:/app/Solution.java:ro`);
 
       // Start container
       await container.start();
