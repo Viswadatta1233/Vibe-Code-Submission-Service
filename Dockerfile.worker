@@ -39,7 +39,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies (including dev dependencies for ts-node)
-RUN npm ci --include=dev && npm cache clean --force
+RUN npm ci && npm cache clean --force
 
 # Copy built application and source
 COPY --from=builder /app/dist ./dist
