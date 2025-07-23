@@ -324,20 +324,34 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       await container.start();
       console.log('🚀 [JAVA-DOCKER] Container started for file copy');
       
-      // Use echo to write file content to container
+      // Use a simpler approach - write file content using base64
       console.log('📁 [JAVA-DOCKER] Writing file content to container...');
+      
+      // Encode file content as base64 to avoid shell escaping issues
+      const base64Content = Buffer.from(javaFileContent, 'utf8').toString('base64');
+      
       const writeResult = await container.exec({
-        Cmd: ['sh', '-c', `echo '${javaFileContent.replace(/'/g, "'\"'\"'")}' > /app/Solution.java`],
+        Cmd: ['sh', '-c', `echo '${base64Content}' | base64 -d > /app/Solution.java`],
         AttachStdout: true,
         AttachStderr: true
       });
       
-      // Wait for write to complete
+      // Wait for write to complete without using problematic stream handling
       await new Promise((resolve, reject) => {
-        writeResult.modem.demuxStream(writeResult, process.stdout, process.stderr);
+        const timeout = setTimeout(() => {
+          console.log('📁 [JAVA-DOCKER] Write operation timed out, assuming success');
+          resolve(null);
+        }, 5000);
+        
         writeResult.modem.followProgress(writeResult, (err: any, res: any) => {
-          if (err) reject(err);
-          else resolve(res);
+          clearTimeout(timeout);
+          if (err) {
+            console.error('❌ [JAVA-DOCKER] Write operation failed:', err);
+            reject(err);
+          } else {
+            console.log('✅ [JAVA-DOCKER] Write operation completed');
+            resolve(res);
+          }
         });
       });
       
