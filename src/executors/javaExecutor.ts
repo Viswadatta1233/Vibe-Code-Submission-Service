@@ -435,12 +435,11 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
         console.log('📤 [JAVA-DOCKER] Stream is valid, setting up event handlers');
         
         stream.on('data', (chunk: Buffer) => {
-          const data = chunk.toString('utf8');
           hasOutput = true;
           console.log('📤 [JAVA-DOCKER] Received chunk:', chunk.length, 'bytes');
           
-          // Remove Docker log headers (8-byte headers)
-          const cleanData = removeDockerHeaders(data);
+          // Parse Docker log format properly
+          const cleanData = parseDockerLogChunk(chunk);
           
           if (cleanData) {
             stdout += cleanData;
@@ -573,17 +572,42 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
   });
 }
 
-function removeDockerHeaders(data: string): string {
-  // Docker log format: [8 bytes header][payload]
-  // We need to skip the 8-byte headers
-  const lines = data.split('\n');
-  const cleanLines = lines.map(line => {
-    if (line.length >= 8) {
-      return line.substring(8);
+function parseDockerLogChunk(chunk: Buffer): string {
+  let result = '';
+  let offset = 0;
+  
+  while (offset < chunk.length) {
+    // Docker log format: [stream_type(1)][padding(3)][size(4)][payload(size)]
+    if (offset + 8 > chunk.length) {
+      // Not enough bytes for header, treat remaining as raw data
+      result += chunk.slice(offset).toString('utf8');
+      break;
     }
-    return line;
-  });
-  return cleanLines.join('\n');
+    
+    // Read the header
+    const streamType = chunk.readUInt8(offset);     // 1 byte: stream type (1=stdout, 2=stderr)
+    const size = chunk.readUInt32BE(offset + 4);    // 4 bytes: payload size (big-endian)
+    
+    // Skip header (8 bytes)
+    offset += 8;
+    
+    // Check if we have enough bytes for the payload
+    if (offset + size > chunk.length) {
+      // Not enough bytes for full payload, take what we have
+      const availableSize = chunk.length - offset;
+      result += chunk.slice(offset, offset + availableSize).toString('utf8');
+      break;
+    }
+    
+    // Extract payload
+    const payload = chunk.slice(offset, offset + size).toString('utf8');
+    result += payload;
+    
+    // Move to next frame
+    offset += size;
+  }
+  
+  return result;
 }
 
 function parseJavaOutput(output: string, expectedTestCount: number): string[] {
