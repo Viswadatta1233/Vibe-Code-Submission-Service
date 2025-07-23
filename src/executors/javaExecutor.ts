@@ -187,16 +187,18 @@ import java.util.regex.Matcher;
 
 `;
   
-  // Combine the code
-  const solutionCode = `${imports}${startSnippet}\n${userCode}\n${endSnippet}`;
-  console.log('📝 [JAVA-GENERATE] Solution code length:', solutionCode.length);
-  
   // Generate test runner
   console.log('📝 [JAVA-GENERATE] Generating test runner...');
   const testRunner = generateJavaTestRunner(testcases, functionName);
   console.log('📝 [JAVA-GENERATE] Test runner length:', testRunner.length);
   
-  const completeCode = `${solutionCode}\n\n${testRunner}`;
+  // Combine the code with test runner INSIDE the class (before endSnippet)
+  const completeCode = `${imports}${startSnippet}
+    ${userCode}
+
+${testRunner}
+${endSnippet}`;
+  
   console.log('📝 [JAVA-GENERATE] Complete code length:', completeCode.length);
   console.log('✅ [JAVA-GENERATE] Code generation completed');
   
@@ -204,66 +206,67 @@ import java.util.regex.Matcher;
 }
 
 function generateJavaTestRunner(testcases: any[], functionName: string): string {
-  let testRunner = `
-    public static void main(String[] args) {
+  let testRunner = `    public static void main(String[] args) {
         Solution solution = new Solution();
-        String[][] testCases = {
+        
 `;
 
-  // Add test cases
+  // Add individual test cases
   testcases.forEach((testcase, index) => {
     const input = testcase.input;
     const expectedOutput = testcase.output;
     
-    testRunner += `            {${input}, ${expectedOutput}}, // Test case ${index + 1}\n`;
-  });
-
-  testRunner += `        };
-        
-        for (int i = 0; i < testCases.length; i++) {
-            try {
-                String input = testCases[i][0];
-                String expected = testCases[i][1];
-                Object result = null;
-                
-                // Parse input based on expected type
-                if (expected.equals("true") || expected.equals("false")) {
-                    // Boolean input - remove quotes if present
-                    String cleanInput = input.replaceAll("\"", "");
-                    result = solution.${functionName}(cleanInput);
-                } else if (expected.matches("-?\\\\d+")) {
-                    // Integer input - parse array or single value
-                    if (input.startsWith("[") && input.endsWith("]")) {
-                        // Array input
-                        String[] parts = input.substring(1, input.length() - 1).split(",");
+    testRunner += `        // Test case ${index + 1}
+        try {
+            String input${index + 1} = ${input};
+            String expected${index + 1} = "${expectedOutput}";
+            Object result${index + 1} = null;
+            
+            // Parse input and call method based on expected type
+            if (expected${index + 1}.equals("true") || expected${index + 1}.equals("false")) {
+                // Boolean return type - string input
+                String cleanInput = input${index + 1}.replaceAll("\\"", "");
+                result${index + 1} = solution.${functionName}(cleanInput);
+            } else if (expected${index + 1}.matches("-?\\\\d+")) {
+                // Integer return type
+                if (input${index + 1}.startsWith("[") && input${index + 1}.endsWith("]")) {
+                    // Array input
+                    String arrayStr = input${index + 1}.substring(1, input${index + 1}.length() - 1);
+                    if (arrayStr.trim().isEmpty()) {
+                        result${index + 1} = solution.${functionName}(new int[0]);
+                    } else {
+                        String[] parts = arrayStr.split(",");
                         int[] nums = new int[parts.length];
                         for (int j = 0; j < parts.length; j++) {
                             nums[j] = Integer.parseInt(parts[j].trim());
                         }
-                        result = solution.${functionName}(nums);
-                    } else {
-                        // Single integer input
-                        int num = Integer.parseInt(input);
-                        result = solution.${functionName}(num);
+                        result${index + 1} = solution.${functionName}(nums);
                     }
                 } else {
-                    // String input - remove quotes
-                    String cleanInput = input.replaceAll("\"", "");
-                    result = solution.${functionName}(cleanInput);
+                    // Single integer input
+                    int num = Integer.parseInt(input${index + 1});
+                    result${index + 1} = solution.${functionName}(num);
                 }
-                
-                // Convert result to string for comparison
-                String resultStr = String.valueOf(result).toLowerCase();
-                String expectedStr = expected.toLowerCase();
-                
-                System.out.println("TEST_" + (i + 1) + ":" + resultStr);
-                
-            } catch (Exception e) {
-                System.out.println("TEST_" + (i + 1) + ":ERROR:" + e.getMessage());
+            } else {
+                // String return type - string input
+                String cleanInput = input${index + 1}.replaceAll("\\"", "");
+                result${index + 1} = solution.${functionName}(cleanInput);
             }
+            
+            // Convert result to string for comparison
+            String resultStr = String.valueOf(result${index + 1}).toLowerCase();
+            String expectedStr = expected${index + 1}.toLowerCase();
+            
+            System.out.println("TEST_${index + 1}:" + resultStr);
+            
+        } catch (Exception e) {
+            System.out.println("TEST_${index + 1}:ERROR:" + e.getMessage());
         }
-    }
+        
 `;
+  });
+
+  testRunner += `    }`;
 
   return testRunner;
 }
