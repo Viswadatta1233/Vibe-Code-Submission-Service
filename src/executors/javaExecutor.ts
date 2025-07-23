@@ -222,7 +222,7 @@ function generateJavaTestRunner(testcases: any[], functionName: string, userCode
     
     testRunner += `        // Test case ${index + 1}
         try {
-            String rawInput${index + 1} = "${input}";
+            String rawInput${index + 1} = "${input.replace(/"/g, '\\"')}";
             String expected${index + 1} = "${expectedOutput}";
             Object result${index + 1} = null;
             
