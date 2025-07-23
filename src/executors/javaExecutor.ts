@@ -284,48 +284,64 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       await pullDockerImage('openjdk:11-jdk-slim');
       console.log('✅ [JAVA-DOCKER] Docker image ready');
       
-      // Use bind mount approach - mount file directly to fixed location
-      console.log('📁 [JAVA-DOCKER] Using bind mount approach...');
-      
-      // Mount the file directly to a fixed location in container
-      const containerFilePath = '/tmp/Solution.java';
+      // Use STDIN/pipe approach - much simpler and more reliable
+      console.log('📁 [JAVA-DOCKER] Using STDIN/pipe approach...');
       
       console.log('📁 [JAVA-DOCKER] Source file:', tempFile);
-      console.log('📁 [JAVA-DOCKER] Container path:', containerFilePath);
-      console.log('📁 [JAVA-DOCKER] Bind mount path:', `${tempFile}:${containerFilePath}:ro`);
       console.log('📁 [JAVA-DOCKER] Source file exists:', require('fs').existsSync(tempFile));
       
-      // Create container with bind mount
-      console.log('🐳 [JAVA-DOCKER] Creating container with bind mount...');
+      // Create container with STDIN enabled
+      console.log('🐳 [JAVA-DOCKER] Creating container with STDIN...');
       const container = await docker.createContainer({
         Image: 'openjdk:11-jdk-slim',
-        Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /tmp ===" && ls -la /tmp && echo "=== Checking if file exists ===" && test -f /tmp/Solution.java && echo "File exists" || echo "File does not exist" && echo "=== Copying file ===" && cp /tmp/Solution.java /app/ && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
+        Cmd: [
+          'sh', '-c', 
+          'echo "=== Receiving file via STDIN ===" && ' +
+          'cat > /app/Solution.java && ' +
+          'echo "=== File received ===" && ' +
+          'echo "=== Listing /app ===" && ls -la /app && ' +
+          'echo "=== File content ===" && cat /app/Solution.java && ' +
+          'echo "=== Compiling ===" && cd /app && javac Solution.java && ' +
+          'echo "=== Running ===" && java Solution'
+        ],
         HostConfig: {
-          Binds: [`${tempFile}:${containerFilePath}:ro`],
           Memory: 512 * 1024 * 1024, // 512MB memory limit
           MemorySwap: 0,
           CpuPeriod: 100000,
           CpuQuota: 50000, // 50% CPU limit
           NetworkMode: 'none', // No network access
-          SecurityOpt: ['no-new-privileges'],
-          Tmpfs: {
-            '/tmp/tmp': 'rw,noexec,nosuid,size=100m'
-          }
+          SecurityOpt: ['no-new-privileges']
         },
         WorkingDir: '/app',
         AttachStdout: true,
         AttachStderr: true,
-        OpenStdin: false,
-        StdinOnce: false
+        OpenStdin: true,
+        StdinOnce: true
       });
       
-      console.log('🐳 [JAVA-DOCKER] Created container with bind mount:', container.id);
+      console.log('🐳 [JAVA-DOCKER] Created container with STDIN:', container.id);
       
       // Start the container
       await container.start();
-      console.log('🚀 [JAVA-DOCKER] Container started with bind mount');
+      console.log('🚀 [JAVA-DOCKER] Container started with STDIN');
       
-      console.log('✅ [JAVA-DOCKER] File copied to container');
+      // Attach to container and send file content via STDIN
+      console.log('📁 [JAVA-DOCKER] Attaching to container...');
+      const attachStream = await container.attach({
+        stream: true,
+        stdin: true,
+        stdout: true,
+        stderr: true
+      });
+      
+      // Send file content via STDIN
+      console.log('📁 [JAVA-DOCKER] Sending file content via STDIN...');
+      const javaSourceContent = await require('fs').readFileSync(tempFile, 'utf8');
+      console.log('📁 [JAVA-DOCKER] File content length:', javaSourceContent.length, 'characters');
+      
+      attachStream.write(javaSourceContent);
+      attachStream.end();
+      console.log('✅ [JAVA-DOCKER] File content sent via STDIN');
       
       // Log the file content that was copied
       console.log('📁 [JAVA-DOCKER] File content that was copied:');
