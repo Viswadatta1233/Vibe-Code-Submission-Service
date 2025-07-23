@@ -175,9 +175,9 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       // Create container
       const container = await docker.createContainer({
         Image: 'openjdk:11-jdk-slim',
-        Cmd: ['sh', '-c', 'echo "=== Copying file ===" && cp /tmp/Solution.java /app/ && echo "=== Current directory ===" && pwd && echo "=== Listing /app ===" && ls -la /app && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
+        Cmd: ['sh', '-c', 'echo "=== Copying file ===" && cp /tmp/source.java /app/Solution.java && echo "=== Current directory ===" && pwd && echo "=== Listing /app ===" && ls -la /app && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
         HostConfig: {
-          Binds: [`${tempFile}:/tmp/Solution.java:ro`],
+          Binds: [`${tempFile}:/tmp/source.java:ro`],
           Memory: 512 * 1024 * 1024, // 512MB memory limit
           MemorySwap: 0,
           CpuPeriod: 100000,
