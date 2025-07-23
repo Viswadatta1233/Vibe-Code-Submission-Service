@@ -32,6 +32,18 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
     const completeCode = generateJavaCode(stub, userCode, problem.testcases, functionName);
     console.log('📝 [JAVA] Generated complete code');
     console.log('📝 [JAVA] Code preview (first 500 chars):', completeCode.substring(0, 500));
+    console.log('📝 [JAVA] Code preview (last 500 chars):', completeCode.substring(completeCode.length - 500));
+    console.log('📝 [JAVA] Total code length:', completeCode.length, 'characters');
+    console.log('📝 [JAVA] Number of lines:', completeCode.split('\n').length);
+    
+    // Log code structure
+    const lines = completeCode.split('\n');
+    console.log('📝 [JAVA] Code structure:');
+    console.log('  - Lines 1-5 (imports):', lines.slice(0, 5).join(' | '));
+    console.log('  - Class declaration:', lines.find(line => line.includes('public class Solution')));
+    console.log('  - Method declaration:', lines.find(line => line.includes(`public boolean ${functionName}`)));
+    console.log('  - Main method:', lines.find(line => line.includes('public static void main')));
+    console.log('  - Test cases count:', lines.filter(line => line.includes('TEST_')).length);
 
     // Create temporary file
     const tempFile = join(tmpdir(), `Solution_${uuidv4()}.java`);
@@ -163,9 +175,9 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       // Create container
       const container = await docker.createContainer({
         Image: 'openjdk:11-jdk-slim',
-        Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /app ===" && ls -la /app && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
+        Cmd: ['sh', '-c', 'echo "=== Copying file ===" && cp /tmp/Solution.java /app/ && echo "=== Current directory ===" && pwd && echo "=== Listing /app ===" && ls -la /app && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
         HostConfig: {
-          Binds: [`${tempFile}:/app/Solution.java:ro`],
+          Binds: [`${tempFile}:/tmp/Solution.java:ro`],
           Memory: 512 * 1024 * 1024, // 512MB memory limit
           MemorySwap: 0,
           CpuPeriod: 100000,
@@ -184,11 +196,21 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       });
 
       console.log('🐳 [JAVA] Created Docker container:', container.id);
-      console.log('🐳 [JAVA] Bind mount:', `${tempFile}:/app/Solution.java:ro`);
 
       // Start container
       await container.start();
       console.log('🚀 [JAVA] Started container');
+      
+      // Log the actual file content that will be in the container
+      console.log('📁 [JAVA] File content to be copied:');
+      const fileContent = await require('fs').readFileSync(tempFile, 'utf8');
+      console.log('📁 [JAVA] File size in container:', fileContent.length, 'bytes');
+      console.log('📁 [JAVA] First 10 lines in container:');
+      fileContent.split('\n').slice(0, 10).forEach((line, i) => {
+        console.log(`    ${i + 1}: ${line}`);
+      });
+
+
 
       // Get output stream
       const stream = await container.logs({
