@@ -591,6 +591,15 @@ function parseJavaOutput(output: string, expectedTestCount: number): string[] {
   console.log('🔍 [JAVA-PARSE] Output length:', output.length);
   console.log('🔍 [JAVA-PARSE] Output preview:', output.substring(output.length - 500));
   
+  // Find and log the execution section
+  const runningIndex = output.indexOf('=== Running ===');
+  if (runningIndex !== -1) {
+    const executionOutput = output.substring(runningIndex);
+    console.log('🔍 [JAVA-PARSE] Execution section:', executionOutput.substring(0, 200));
+    const executionLines = executionOutput.split('\n');
+    console.log('🔍 [JAVA-PARSE] Execution lines:', executionLines.slice(0, 10));
+  }
+  
   const lines = output.trim().split('\n');
   const results: string[] = [];
   
@@ -614,29 +623,49 @@ function parseJavaOutput(output: string, expectedTestCount: number): string[] {
       }
     }
     
-    if (!found) {
-      console.log(`❌ [JAVA-PARSE] Missing execution result for ${testPattern}`);
-      // Try to find it in a different way - look for the pattern after "=== Running ==="
-      const runningIndex = output.indexOf('=== Running ===');
-      if (runningIndex !== -1) {
-        const executionOutput = output.substring(runningIndex);
-        const executionLines = executionOutput.split('\n');
-        for (const execLine of executionLines) {
-          const trimmedExecLine = execLine.trim();
-          if (trimmedExecLine.startsWith(testPattern)) {
-            const result = trimmedExecLine.substring(testPattern.length);
-            results.push(result);
-            console.log(`🔍 [JAVA-PARSE] Found in execution section: ${testPattern}${result}`);
-            found = true;
-            break;
+          if (!found) {
+        console.log(`❌ [JAVA-PARSE] Missing execution result for ${testPattern}`);
+        // Try to find it in a different way - look for the pattern after "=== Running ==="
+        const runningIndex = output.indexOf('=== Running ===');
+        if (runningIndex !== -1) {
+          const executionOutput = output.substring(runningIndex);
+          const executionLines = executionOutput.split('\n');
+          console.log(`🔍 [JAVA-PARSE] Searching execution lines for ${testPattern}:`, executionLines);
+          for (const execLine of executionLines) {
+            const trimmedExecLine = execLine.trim();
+            if (trimmedExecLine.startsWith(testPattern)) {
+              const result = trimmedExecLine.substring(testPattern.length);
+              results.push(result);
+              console.log(`🔍 [JAVA-PARSE] Found in execution section: ${testPattern}${result}`);
+              found = true;
+              break;
+            }
           }
         }
+        
+        // Last resort: check if there's a standalone number that could be the result
+        if (!found && i === expectedTestCount) {
+          const runningIndex = output.indexOf('=== Running ===');
+          if (runningIndex !== -1) {
+            const executionOutput = output.substring(runningIndex);
+            const lines = executionOutput.split('\n');
+            // Look for the last non-empty line that's just a number
+            for (let j = lines.length - 1; j >= 0; j--) {
+              const line = lines[j].trim();
+              if (line && /^\d+$/.test(line)) {
+                console.log(`🔍 [JAVA-PARSE] Found standalone number for ${testPattern}: ${line}`);
+                results.push(line);
+                found = true;
+                break;
+              }
+            }
+          }
+        }
+        
+        if (!found) {
+          results.push('');
+        }
       }
-      
-      if (!found) {
-        results.push('');
-      }
-    }
   }
   
   console.log('🔍 [JAVA-PARSE] Final parsed results:', results);
