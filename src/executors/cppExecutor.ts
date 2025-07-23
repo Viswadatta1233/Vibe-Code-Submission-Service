@@ -1,495 +1,331 @@
 import Docker from 'dockerode';
-import { Problem, ExecutionResponse } from '../types';
+import { writeFile, unlink } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { v4 as uuidv4 } from 'uuid';
+import type { Problem, ExecutionResponse } from '../types';
 
-const CPP_IMAGE = 'gcc:latest';
+const docker = new Docker();
 
-// Helper function to demultiplex Docker logs
-function demultiplexDockerLogs(buffer: Buffer): { stdout: string; stderr: string } {
-  let stdout = '';
-  let stderr = '';
-  
-  for (let i = 0; i < buffer.length; i += 8) {
-    if (i + 8 > buffer.length) break;
-    
-    const header = buffer.slice(i, i + 8);
-    const streamType = header[0];
-    const payloadLength = header.readUInt32BE(4);
-    
-    if (i + 8 + payloadLength > buffer.length) break;
-    
-    const payload = buffer.slice(i + 8, i + 8 + payloadLength);
-    const text = payload.toString('utf8');
-    
-    if (streamType === 1) {
-      stdout += text;
-    } else if (streamType === 2) {
-      stderr += text;
-    }
-    
-    i += payloadLength - 8; // Adjust for the payload we just processed
-  }
-  
-  return { stdout, stderr };
-}
-
-// Helper function to pull Docker image
-async function pullImage(docker: any, image: string): Promise<void> {
-  try {
-    await docker.pull(image);
-    console.log(`✅ [CPP] Image ${image} pulled successfully`);
-  } catch (error) {
-    console.error(`❌ [CPP] Failed to pull image ${image}:`, error);
-    throw error;
-  }
-}
-
-// Helper function to create container
-async function createContainer(docker: any, image: string, cmd: string[]): Promise<any> {
-  try {
-    const container = await docker.createContainer({
-      Image: image,
-      Cmd: cmd,
-      AttachStdout: true,
-      AttachStderr: true,
-      OpenStdin: true,
-      StdinOnce: false,
-      Tty: false,
-              HostConfig: {
-          Memory: 512 * 1024 * 1024, // 512MB
-          MemorySwap: 0,
-          CpuPeriod: 100000,
-          CpuQuota: 50000, // 50% CPU
-          NetworkMode: 'none',
-          SecurityOpt: ['no-new-privileges'],
-          Binds: []
-        }
-    });
-    console.log(`✅ [CPP] Container created: ${container.id}`);
-    return container;
-  } catch (error) {
-    console.error(`❌ [CPP] Failed to create container:`, error);
-    throw error;
-  }
-}
-
-// Helper function to fetch decoded stream with timeout
-function fetchDecodedStream(loggerStream: NodeJS.ReadableStream, rawLogBuffer: Buffer[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      console.log('⏰ [CPP] Timer called - TLE');
-      reject(new Error('TLE'));
-    }, 4000);
-
-    loggerStream.on('end', () => {
-      clearTimeout(timer);
-      console.log('📝 [CPP] Stream ended, processing logs...');
-      
-      // Concatenate all collected log chunks into one complete buffer
-      const completeStreamData = Buffer.concat(rawLogBuffer);
-      
-      // Decode the complete log stream
-      const decodedStream = demultiplexDockerLogs(completeStreamData);
-      
-      console.log('🔍 [CPP] Decoded stream:', {
-        stdoutLength: decodedStream.stdout.length,
-        stderrLength: decodedStream.stderr.length,
-        stdout: decodedStream.stdout.substring(0, 200) + '...',
-        stderr: decodedStream.stderr.substring(0, 200) + '...'
-      });
-      
-      if (decodedStream.stderr) {
-        reject(new Error(decodedStream.stderr));
-      } else {
-        resolve(decodedStream.stdout);
-      }
-    });
-  });
+interface TestResult {
+  testcase: any;
+  output: string;
+  passed: boolean;
+  error?: string;
 }
 
 export async function runCpp(problem: Problem, userCode: string): Promise<ExecutionResponse> {
-  console.log('🚀 [CPP] Starting C++ execution...');
-  console.log('📋 [CPP] Problem title:', problem.title);
-  console.log('📋 [CPP] User code length:', userCode.length);
-  console.log('📋 [CPP] Number of test cases:', problem.testcases?.length || 0);
-  
-  const docker = new Docker({ socketPath: '/var/run/docker.sock' });
-  let container: any = null;
+  console.log('⚡ [CPP] Starting C++ execution...');
   
   try {
-    // Extract the Solution class content from user code
-    let solutionContent = userCode;
-    console.log('🔍 [CPP] Original user code:', userCode.substring(0, 200) + '...');
+    // Find C++ code stub
+    const stub = problem.codeStubs.find(s => s.language === 'CPP');
+    if (!stub) {
+      throw new Error('C++ code stub not found');
+    }
+
+    // Extract function name from userSnippet
+    const functionName = extractFunctionName(stub.userSnippet);
+    console.log('🔍 [CPP] Extracted function name:', functionName);
+
+    // Generate complete code with test runner
+    const completeCode = generateCppCode(stub, userCode, problem.testcases, functionName);
+    console.log('📝 [CPP] Generated complete code');
+
+    // Create temporary file
+    const tempFile = join(tmpdir(), `solution_${uuidv4()}.cpp`);
+    await writeFile(tempFile, completeCode, 'utf8');
+    console.log('💾 [CPP] Created temp file:', tempFile);
+
+    // Execute in Docker container
+    const result = await executeCppInDocker(tempFile, problem.testcases.length);
+    console.log('✅ [CPP] Execution completed');
+
+    // Clean up temp file
+    try {
+      await unlink(tempFile);
+    } catch (cleanupError) {
+      console.warn('⚠️ [CPP] Failed to cleanup temp file:', cleanupError);
+    }
+
+    return result;
+  } catch (error: any) {
+    console.error('❌ [CPP] Execution failed:', error);
+    throw error;
+  }
+}
+
+function extractFunctionName(userSnippet: string): string {
+  // Extract function name from patterns like:
+  // "bool isValid(std::string s) {" -> "isValid"
+  // "int maxSubArray(std::vector<int>& nums) {" -> "maxSubArray"
+  const functionMatch = userSnippet.match(/\w+\s+(\w+)\s*\(/);
+  if (!functionMatch) {
+    throw new Error('Could not extract function name from userSnippet');
+  }
+  return functionMatch[1];
+}
+
+function generateCppCode(stub: any, userCode: string, testcases: any[], functionName: string): string {
+  const startSnippet = stub.startSnippet || '';
+  const endSnippet = stub.endSnippet || '';
+  
+  // Combine the code
+  const solutionCode = `${startSnippet}\n${userCode}\n${endSnippet}`;
+  
+  // Generate test runner
+  const testRunner = generateCppTestRunner(testcases, functionName);
+  
+  return `${solutionCode}\n\n${testRunner}`;
+}
+
+function generateCppTestRunner(testcases: any[], functionName: string): string {
+  let testRunner = `
+int main() {
+    Solution solution;
+    std::vector<std::pair<std::string, std::string>> testCases = {
+`;
+
+  // Add test cases
+  testcases.forEach((testcase, index) => {
+    const input = testcase.input;
+    const expectedOutput = testcase.output;
     
-    // If user provided full class, extract just the content
-    if (userCode.includes('class Solution')) {
-      console.log('🔍 [CPP] Detected full class, extracting content...');
-      const classMatch = userCode.match(/class Solution\s*\{([\s\S]*)\}/);
-      if (classMatch) {
-        solutionContent = classMatch[1].trim();
-        console.log('🔍 [CPP] Extracted class content length:', solutionContent.length);
-      } else {
-        console.log('⚠️ [CPP] Could not extract class content, using full code');
-      }
-    } else {
-      console.log('🔍 [CPP] Using user code as-is (no class wrapper detected)');
+    testRunner += `        {${input}, ${expectedOutput}}, // Test case ${index + 1}\n`;
+  });
+
+  testRunner += `    };
+    
+    for (int i = 0; i < testCases.size(); i++) {
+        try {
+            std::string input = testCases[i].first;
+            std::string expected = testCases[i].second;
+            std::string result;
+            
+            // Parse input based on expected type
+            if (expected == "true" || expected == "false") {
+                // Boolean input - remove quotes if present
+                std::string cleanInput = input;
+                if (cleanInput.front() == '"' && cleanInput.back() == '"') {
+                    cleanInput = cleanInput.substr(1, cleanInput.length() - 2);
+                }
+                bool result_bool = solution.${functionName}(cleanInput);
+                result = result_bool ? "true" : "false";
+            } else if (std::regex_match(expected, std::regex("-?\\\\d+"))) {
+                // Integer input - parse array or single value
+                if (input.front() == '[' && input.back() == ']') {
+                    // Array input
+                    std::string arrayStr = input.substr(1, input.length() - 2);
+                    std::vector<int> nums;
+                    std::stringstream ss(arrayStr);
+                    std::string item;
+                    while (std::getline(ss, item, ',')) {
+                        nums.push_back(std::stoi(item));
+                    }
+                    int result_int = solution.${functionName}(nums);
+                    result = std::to_string(result_int);
+                } else {
+                    // Single integer input
+                    int num = std::stoi(input);
+                    int result_int = solution.${functionName}(num);
+                    result = std::to_string(result_int);
+                }
+            } else {
+                // String input - remove quotes
+                std::string cleanInput = input;
+                if (cleanInput.front() == '"' && cleanInput.back() == '"') {
+                    cleanInput = cleanInput.substr(1, cleanInput.length() - 2);
+                }
+                bool result_bool = solution.${functionName}(cleanInput);
+                result = result_bool ? "true" : "false";
+            }
+            
+            std::cout << "TEST_" << (i + 1) << ":" << result << std::endl;
+            
+        } catch (const std::exception& e) {
+            std::cout << "TEST_" << (i + 1) << ":ERROR:" << e.what() << std::endl;
+        }
     }
     
-    // Extract method name and parameter type from user code
-    const methodMatch = userCode.match(/(?:int|long|double|float|bool|string|void|std::vector<.*>|vector<.*>|int\[\]|long\[\]|double\[\]|float\[\]|bool\[\]|string\[\])\s+(\w+)\s*\(([^)]*)\)/);
-    const methodName = methodMatch ? methodMatch[1] : 'solve';
-    const fullParam = methodMatch ? methodMatch[2].trim() : 'string s';
-    
-    // Extract just the type from the parameter (e.g., "string s" -> "string")
-    const paramTypeMatch = fullParam.match(/^(\w+(?:<.*>)?(?:\[\])?)/);
-    const paramType = paramTypeMatch ? paramTypeMatch[1] : 'string';
-    
-    console.log('🔍 [CPP] Extracted method name:', methodName);
-    console.log('🔍 [CPP] Full parameter:', fullParam);
-    console.log('🔍 [CPP] Extracted parameter type:', paramType);
-    console.log('🔍 [CPP] Method regex match:', methodMatch ? 'Found' : 'Not found, using default "solve"');
-    
-    // Build the complete C++ program
-    const fullCode = [
-      '#include <iostream>',
-      '#include <vector>',
-      '#include <string>',
-      '#include <algorithm>',
-      '#include <unordered_map>',
-      '#include <unordered_set>',
-      '#include <queue>',
-      '#include <stack>',
-      '#include <map>',
-      '#include <set>',
-      '#include <cmath>',
-      '#include <climits>',
-      '#include <cstring>',
-      '#include <sstream>',
-      '#include <fstream>',
-      '#include <iomanip>',
-      '#include <numeric>',
-      '#include <functional>',
-      '#include <bitset>',
-      '#include <deque>',
-      '#include <list>',
-      '#include <array>',
-      '#include <tuple>',
-      '#include <utility>',
-      '#include <memory>',
-      '#include <chrono>',
-      '#include <random>',
-      '#include <cassert>',
-      '#include <cctype>',
-      '#include <cstdlib>',
-      '#include <cstdio>',
-      '#include <cstring>',
-      '#include <ctime>',
-      '#include <cwchar>',
-      '#include <cwctype>',
-      '',
-      'using namespace std;',
-      '',
-      'class Solution {',
-      `    ${solutionContent}`,
-      '};',
-      '',
-      'int main() {',
-      '    // Read input from stdin',
-      '    string input;',
-      '    getline(cin, input);',
-      '',
-      '    // Create solution instance',
-      '    Solution solution;',
-      '',
-      '    // Execute and print result',
-      '    try {',
-      '        // Parse input based on method signature',
-      `        string paramType = "${paramType}";`,
-      '        cout << "DEBUG: paramType = " << paramType << endl;',
-      '        cout << "DEBUG: raw input = " << input << endl;',
-      '',
-      '        // Remove outer quotes if present',
-      '        string cleanInput = input;',
-      '        if (cleanInput.length() >= 2 && cleanInput[0] == \'"\' && cleanInput[cleanInput.length()-1] == \'"\') {',
-      '            cleanInput = cleanInput.substr(1, cleanInput.length() - 2);',
-      '        }',
-      '        cout << "DEBUG: cleanInput = " << cleanInput << endl;',
-      '',
-      '        // First, check if this is a string input (most common case)',
-      '        if (paramType == "string" || paramType == "std::string") {',
-      '            cout << "DEBUG: String parameter detected" << endl;',
-      '            // For string parameters, use the clean input directly',
-      '            auto result = solution.isValid(cleanInput);',
-      '            cout << "DEBUG: Called with string parameter" << endl;',
-      '            cout << result << endl;',
-      '        } else if (cleanInput.length() >= 2 && cleanInput[0] == \'[\' && cleanInput[cleanInput.length()-1] == \']\') {',
-      '            cout << "DEBUG: Array input detected" << endl;',
-      '            // Parse array/vector input',
-      '            string arrayContent = cleanInput.substr(1, cleanInput.length() - 2);',
-      '            cout << "DEBUG: arrayContent = " << arrayContent << endl;',
-      '            if (arrayContent.empty()) {',
-      '                cout << "DEBUG: Empty array detected" << endl;',
-      '                // Empty array - determine type from method signature',
-      '                if (paramType == "vector<int>" || paramType == "std::vector<int>") {',
-      '                    vector<int> intArray;',
-      '                    auto result = solution.isValid(intArray);',
-      '                    cout << "DEBUG: Called with empty vector<int>" << endl;',
-      '                    cout << result << endl;',
-      '                } else if (paramType == "vector<string>" || paramType == "std::vector<string>") {',
-      '                    vector<string> stringArray;',
-      '                    auto result = solution.isValid(stringArray);',
-      '                    cout << "DEBUG: Called with empty vector<string>" << endl;',
-      '                    cout << result << endl;',
-      '                } else if (paramType == "vector<double>" || paramType == "std::vector<double>") {',
-      '                    vector<double> doubleArray;',
-      '                    auto result = solution.isValid(doubleArray);',
-      '                    cout << "DEBUG: Called with empty vector<double>" << endl;',
-      '                    cout << result << endl;',
-      '                } else if (paramType == "vector<bool>" || paramType == "std::vector<bool>") {',
-      '                    vector<bool> boolArray;',
-      '                    auto result = solution.isValid(boolArray);',
-      '                    cout << "DEBUG: Called with empty vector<bool>" << endl;',
-      '                    cout << result << endl;',
-      '                } else {',
-      '                    vector<int> intArray; // default',
-      '                    auto result = solution.isValid(intArray);',
-      '                    cout << "DEBUG: Called with default empty vector<int>" << endl;',
-      '                    cout << result << endl;',
-      '                }',
-      '            } else {',
-      '                cout << "DEBUG: Non-empty array detected" << endl;',
-      '                // Parse non-empty array',
-      '                stringstream ss(arrayContent);',
-      '                string element;',
-      '                vector<string> elements;',
-      '                while (getline(ss, element, \',\')) {',
-      '                    elements.push_back(element);',
-      '                }',
-      '                cout << "DEBUG: elements.size() = " << elements.size() << endl;',
-      '',
-      '                // Check if elements are quoted (strings) or numbers',
-      '                bool isStringArray = !elements.empty() && elements[0].length() >= 2 && elements[0][0] == \'"\' && elements[0][elements[0].length()-1] == \'"\';',
-      '                bool isBooleanArray = !elements.empty() && (elements[0] == "true" || elements[0] == "false");',
-      '                cout << "DEBUG: isStringArray = " << isStringArray << endl;',
-      '                cout << "DEBUG: isBooleanArray = " << isBooleanArray << endl;',
-      '',
-      '                if (isStringArray) {',
-      '                    cout << "DEBUG: Processing string array" << endl;',
-      '                    vector<string> stringArray;',
-      '                    for (const string& element : elements) {',
-      '                        string cleanElement = element;',
-      '                        if (cleanElement.length() >= 2 && cleanElement[0] == \'"\' && cleanElement[cleanElement.length()-1] == \'"\') {',
-      '                            cleanElement = cleanElement.substr(1, cleanElement.length() - 2);',
-      '                        }',
-      '                        stringArray.push_back(cleanElement);',
-      '                    }',
-      '                    auto result = solution.isValid(stringArray);',
-      '                    cout << "DEBUG: Called with vector<string> of size " << stringArray.size() << endl;',
-      '                    cout << result << endl;',
-      '                } else if (isBooleanArray) {',
-      '                    cout << "DEBUG: Processing boolean array" << endl;',
-      '                    vector<bool> boolArray;',
-      '                    for (const string& element : elements) {',
-      '                        boolArray.push_back(element == "true");',
-      '                    }',
-      '                    auto result = solution.isValid(boolArray);',
-      '                    cout << "DEBUG: Called with vector<bool> of size " << boolArray.size() << endl;',
-      '                    cout << result << endl;',
-      '                } else {',
-      '                    cout << "DEBUG: Processing number array" << endl;',
-      '                    // Try to determine if it\'s double or int',
-      '                    bool hasDecimal = false;',
-      '                    for (const string& element : elements) {',
-      '                        if (element.find(\'.\') != string::npos) {',
-      '                            hasDecimal = true;',
-      '                            break;',
-      '                        }',
-      '                    }',
-      '                    cout << "DEBUG: hasDecimal = " << hasDecimal << endl;',
-      '',
-      '                    if (hasDecimal) {',
-      '                        cout << "DEBUG: Processing double array" << endl;',
-      '                        vector<double> doubleArray;',
-      '                        for (const string& element : elements) {',
-      '                            doubleArray.push_back(stod(element));',
-      '                        }',
-      '                        auto result = solution.isValid(doubleArray);',
-      '                        cout << "DEBUG: Called with vector<double> of size " << doubleArray.size() << endl;',
-      '                        cout << result << endl;',
-      '                    } else {',
-      '                        cout << "DEBUG: Processing int array" << endl;',
-      '                        vector<int> intArray;',
-      '                        for (const string& element : elements) {',
-      '                            intArray.push_back(stoi(element));',
-      '                        }',
-      '                        auto result = solution.isValid(intArray);',
-      '                        cout << "DEBUG: Called with vector<int> of size " << intArray.size() << endl;',
-      '                        cout << result << endl;',
-      '                    }',
-      '                }',
-      '            }',
-      '        } else if (cleanInput == "true" || cleanInput == "false") {',
-      '            cout << "DEBUG: Boolean input detected" << endl;',
-      '            // Boolean input',
-      '            bool boolValue = (cleanInput == "true");',
-      '            auto result = solution.isValid(boolValue);',
-      '            cout << "DEBUG: Called with bool parameter" << endl;',
-      '            cout << result << endl;',
-      '        } else if (cleanInput.length() == 1) {',
-      '            cout << "DEBUG: Single character input detected" << endl;',
-      '            // Single character',
-      '            char charValue = cleanInput[0];',
-      '            auto result = solution.isValid(charValue);',
-      '            cout << "DEBUG: Called with char parameter" << endl;',
-      '            cout << result << endl;',
-      '        } else {',
-      '            cout << "DEBUG: Number or string input detected" << endl;',
-      '            // Try to parse as number, otherwise use as string',
-      '            if (paramType == "string" || paramType == "std::string") {',
-      '                // For string parameters, use the clean input directly',
-      '                auto result = solution.isValid(cleanInput);',
-      '                cout << "DEBUG: Called with string parameter (fallback)" << endl;',
-      '                cout << result << endl;',
-      '            } else if (cleanInput.find(\'.\') != string::npos) {',
-      '                cout << "DEBUG: Processing double input" << endl;',
-      '                // Double input',
-      '                double doubleValue = stod(cleanInput);',
-      '                auto result = solution.isValid(doubleValue);',
-      '                cout << "DEBUG: Called with double parameter" << endl;',
-      '                cout << result << endl;',
-      '            } else {',
-      '                try {',
-      '                    cout << "DEBUG: Processing int input" << endl;',
-      '                    // Integer input',
-      '                    int intValue = stoi(cleanInput);',
-      '                    auto result = solution.isValid(intValue);',
-      '                    cout << "DEBUG: Called with int parameter" << endl;',
-      '                    cout << result << endl;',
-      '                } catch (const exception& e) {',
-      '                    cout << "DEBUG: Exception parsing int, using as string" << endl;',
-      '                    // String input',
-      '                    auto result = solution.isValid(cleanInput);',
-      '                    cout << "DEBUG: Called with string parameter (exception fallback)" << endl;',
-      '                    cout << result << endl;',
-      '                }',
-      '            }',
-      '        }',
-      '    } catch (const exception& e) {',
-      '        cerr << "Error: " << e.what() << endl;',
-      '    }',
-      '',
-      '    return 0;',
-      '}'
-    ].join('\n');
-  
-    console.log('📝 [CPP] Generated code length:', fullCode.length);
-    console.log('📝 [CPP] Generated code preview:', fullCode.substring(0, 500) + '...');
-    
-    // Prepare test cases
-    const testCases = problem.testcases || [];
-    console.log(`🧪 [CPP] Processing ${testCases.length} test cases`);
-    
-    let allOutputs = '';
-    let passedTests = 0;
-    
-    for (let i = 0; i < testCases.length; i++) {
-      const testCase = testCases[i];
-      const input = testCase.input;
-      const expectedOutput = testCase.output;
+    return 0;
+}
+`;
+
+  return testRunner;
+}
+
+async function executeCppInDocker(tempFile: string, testCaseCount: number): Promise<ExecutionResponse> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      // Pull GCC Docker image if not exists
+      await pullDockerImage('gcc:latest');
       
-      console.log(`🧪 [CPP] Running test case ${i + 1}/${testCases.length}`);
-      console.log(`📥 [CPP] Test case ${i + 1} input:`, input);
-      console.log(`📥 [CPP] Test case ${i + 1} expected output:`, expectedOutput);
-      
-      // Create the run command using heredoc to avoid escaping issues
-      const runCommand = `cat > main.cpp << 'EOF'
-${fullCode}
-EOF
-g++ -std=c++17 -O2 -o main main.cpp && echo '${input}' | ./main`;
-      
-      console.log('🔧 [CPP] Run command length:', runCommand.length);
-      
-      // Pull image if needed
-      await pullImage(docker, CPP_IMAGE);
-      
-      // Create and start container
-      container = await createContainer(docker, CPP_IMAGE, ['/bin/sh', '-c', runCommand]);
+      // Create container
+      const container = await docker.createContainer({
+        Image: 'gcc:latest',
+        Cmd: ['sh', '-c', 'cd /app && g++ -std=c++17 -O2 solution.cpp -o solution && ./solution'],
+        HostConfig: {
+          Binds: [`${tempFile}:/app/solution.cpp:ro`],
+          Memory: 512 * 1024 * 1024, // 512MB memory limit
+          MemorySwap: 0,
+          CpuPeriod: 100000,
+          CpuQuota: 50000, // 50% CPU limit
+          NetworkMode: 'none', // No network access
+          SecurityOpt: ['no-new-privileges'],
+          Tmpfs: {
+            '/tmp': 'rw,noexec,nosuid,size=100m'
+          }
+        },
+        WorkingDir: '/app',
+        AttachStdout: true,
+        AttachStderr: true,
+        OpenStdin: false,
+        StdinOnce: false
+      });
+
+      console.log('🐳 [CPP] Created Docker container:', container.id);
+
+      // Start container
       await container.start();
-      
-      // Set up log collection
-      const rawLogBuffer: Buffer[] = [];
-      const loggerStream = await container.logs({
+      console.log('🚀 [CPP] Started container');
+
+      // Get output stream
+      const stream = await container.logs({
         stdout: true,
         stderr: true,
-        timestamps: false,
-        follow: true
+        follow: true,
+        tail: 'all'
       });
-      
-      loggerStream.on('data', (chunks: Buffer) => {
-        rawLogBuffer.push(chunks);
+
+      let stdout = '';
+      let stderr = '';
+      let hasOutput = false;
+
+      // Set timeout for execution
+      const timeout = setTimeout(async () => {
+        console.log('⏰ [CPP] Execution timeout, killing container');
+        try {
+          await container.kill();
+        } catch (killError) {
+          console.warn('⚠️ [CPP] Failed to kill container:', killError);
+        }
+        reject(new Error('Execution timeout (10 seconds)'));
+      }, 10000);
+
+      // Process output stream
+      stream.on('data', (chunk: Buffer) => {
+        const data = chunk.toString('utf8');
+        hasOutput = true;
+        
+        // Remove Docker log headers (8-byte headers)
+        const cleanData = removeDockerHeaders(data);
+        
+        if (cleanData) {
+          stdout += cleanData;
+        }
       });
-      
-      try {
-        const codeResponse = await fetchDecodedStream(loggerStream, rawLogBuffer);
-        const trimmedResponse = codeResponse.trim();
-        const trimmedExpected = expectedOutput.trim();
+
+      stream.on('end', async () => {
+        clearTimeout(timeout);
         
-        console.log(`📊 [CPP] Test ${i + 1} - Raw response: "${codeResponse}"`);
-        console.log(`📊 [CPP] Test ${i + 1} - Trimmed response: "${trimmedResponse}"`);
-        console.log(`📊 [CPP] Test ${i + 1} - Expected: "${trimmedExpected}"`);
-        console.log(`📊 [CPP] Test ${i + 1} - Match: ${trimmedResponse === trimmedExpected ? '✅ PASS' : '❌ FAIL'}`);
-        
-        if (trimmedResponse === trimmedExpected) {
-          passedTests++;
-          console.log(`✅ [CPP] Test ${i + 1} passed!`);
-        } else {
-          console.log(`❌ [CPP] Test ${i + 1} failed!`);
-        }
-        allOutputs += `${trimmedResponse}\n`;
-        console.log(`📝 [CPP] Added to allOutputs: "${trimmedResponse}"`);
-        
-              } catch (error) {
-          if (error instanceof Error) {
-            console.log(`❌ [CPP] Test ${i + 1} error:`, error.message);
-            if (error.message === 'TLE') {
-              await container.kill();
-            }
-            allOutputs += `ERROR\n`;
-          } else {
-            allOutputs += `ERROR\n`;
-          }
-      } finally {
-        // Remove container
-        if (container) {
-        await container.remove();
-          container = null;
-        }
-      }
-    }
-    
-    // Determine final status
-    const status = passedTests === testCases.length ? 'SUCCESS' : 'WA';
-    console.log(`✅ [CPP] Execution completed: ${passedTests}/${testCases.length} tests passed`);
-    console.log(`📊 [CPP] Final status: ${status}`);
-    console.log(`📝 [CPP] Final output:`, allOutputs);
-    console.log(`📝 [CPP] Output length:`, allOutputs.length);
-    
-    return { output: allOutputs, status };
-    
-  } catch (error) {
-    console.error('❌ [CPP] Execution error:', error);
-    if (error instanceof Error) {
-      return { output: error.message, status: 'ERROR' };
-    } else {
-      return { output: String(error), status: 'ERROR' };
-    }
-  } finally {
-    // Ensure container is removed
-    if (container) {
-      try {
+        try {
+          // Get container info
+          const containerInfo = await container.inspect();
+          const exitCode = containerInfo.State.ExitCode;
+          
+          console.log('📊 [CPP] Container exit code:', exitCode);
+          console.log('📤 [CPP] Stdout:', stdout);
+          console.log('📤 [CPP] Stderr:', stderr);
+
+          // Clean up container
           await container.remove();
-      } catch (error) {
-        console.error('❌ [CPP] Failed to remove container:', error);
-      }
+          console.log('🧹 [CPP] Container removed');
+
+          if (exitCode === 0) {
+            // Parse test results
+            const results = parseCppOutput(stdout, testCaseCount);
+            resolve({
+              output: results.join('\n'),
+              status: 'success'
+            });
+          } else {
+            // Handle compilation or execution errors
+            const errorMessage = stderr || 'Execution failed with non-zero exit code';
+            reject(new Error(errorMessage));
+          }
+        } catch (cleanupError) {
+          console.error('❌ [CPP] Cleanup error:', cleanupError);
+          reject(cleanupError);
+        }
+      });
+
+      stream.on('error', (error) => {
+        clearTimeout(timeout);
+        console.error('❌ [CPP] Stream error:', error);
+        reject(error);
+      });
+
+    } catch (error) {
+      console.error('❌ [CPP] Docker execution error:', error);
+      reject(error);
     }
+  });
+}
+
+function removeDockerHeaders(data: string): string {
+  // Docker log format: [8 bytes header][payload]
+  // We need to skip the 8-byte headers
+  const lines = data.split('\n');
+  const cleanLines = lines.map(line => {
+    if (line.length >= 8) {
+      return line.substring(8);
+    }
+    return line;
+  });
+  return cleanLines.join('\n');
+}
+
+function parseCppOutput(output: string, expectedTestCount: number): string[] {
+  const lines = output.trim().split('\n');
+  const results: string[] = [];
+  
+  for (let i = 0; i < expectedTestCount; i++) {
+    const line = lines[i];
+    if (line && line.startsWith(`TEST_${i + 1}:`)) {
+      const result = line.substring(`TEST_${i + 1}:`.length);
+      results.push(result);
+    } else {
+      // Missing or malformed output
+      results.push('');
+    }
+  }
+  
+  return results;
+}
+
+async function pullDockerImage(imageName: string): Promise<void> {
+  try {
+    const image = docker.getImage(imageName);
+    await image.inspect();
+    console.log('✅ [CPP] Docker image already exists:', imageName);
+  } catch (error) {
+    console.log('📥 [CPP] Pulling Docker image:', imageName);
+    return new Promise((resolve, reject) => {
+      docker.pull(imageName, (err, stream) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        
+        docker.modem.followProgress(stream, (err) => {
+          if (err) {
+            reject(err);
+          } else {
+            console.log('✅ [CPP] Docker image pulled successfully:', imageName);
+            resolve();
+          }
+        });
+      });
+    });
   }
 }

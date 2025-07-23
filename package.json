@@ -8,6 +8,7 @@
     "start": "tsc && node dist/index.js",
     "dev": "ts-node-dev src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "test:executors": "npm run build && node test-executors.js",
     "worker": "ts-node src/workers/submissionWorker.ts"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "mongoose": "^8.16.0",
     "socket.io": "^4.8.1",
     "tmp-promise": "^3.0.3",
+    "uuid": "^9.0.1",
     "ws": "^8.18.3"
   },
   "devDependencies": {
@@ -40,6 +42,7 @@
     "@types/mongoose": "^5.11.97",
     "@types/node": "^20.19.1",
     "@types/socket.io-client": "^1.4.36",
+    "@types/uuid": "^9.0.8",
     "@types/ws": "^8.18.1",
     "@types/cors": "^2.8.17",
     "nodemon": "^3.1.10",

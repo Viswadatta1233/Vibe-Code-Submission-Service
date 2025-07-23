@@ -1,421 +1,290 @@
 import Docker from 'dockerode';
-import { Problem, ExecutionResponse } from '../types';
+import { spawn } from 'child_process';
+import { writeFile, unlink } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { v4 as uuidv4 } from 'uuid';
+import type { Problem, ExecutionResponse } from '../types';
 
-const PYTHON_IMAGE = 'python:3.9-slim';
+const docker = new Docker();
 
-// Helper function to demultiplex Docker logs
-function demultiplexDockerLogs(buffer: Buffer): { stdout: string; stderr: string } {
-  let stdout = '';
-  let stderr = '';
-  
-  for (let i = 0; i < buffer.length; i += 8) {
-    if (i + 8 > buffer.length) break;
-    
-    const header = buffer.slice(i, i + 8);
-    const streamType = header[0];
-    const payloadLength = header.readUInt32BE(4);
-    
-    if (i + 8 + payloadLength > buffer.length) break;
-    
-    const payload = buffer.slice(i + 8, i + 8 + payloadLength);
-    const text = payload.toString('utf8');
-    
-    if (streamType === 1) {
-      stdout += text;
-    } else if (streamType === 2) {
-      stderr += text;
-    }
-    
-    i += payloadLength - 8; // Adjust for the payload we just processed
-  }
-  
-  return { stdout, stderr };
-}
-
-// Helper function to pull Docker image
-async function pullImage(docker: any, image: string): Promise<void> {
-  try {
-    await docker.pull(image);
-    console.log(`✅ [PYTHON] Image ${image} pulled successfully`);
-  } catch (error) {
-    console.error(`❌ [PYTHON] Failed to pull image ${image}:`, error);
-    throw error;
-  }
-}
-
-// Helper function to create container
-async function createContainer(docker: any, image: string, cmd: string[]): Promise<any> {
-  try {
-    const container = await docker.createContainer({
-      Image: image,
-      Cmd: cmd,
-      AttachStdout: true,
-      AttachStderr: true,
-      OpenStdin: true,
-      StdinOnce: false,
-      Tty: false,
-              HostConfig: {
-          Memory: 512 * 1024 * 1024, // 512MB
-          MemorySwap: 0,
-          CpuPeriod: 100000,
-          CpuQuota: 50000, // 50% CPU
-          NetworkMode: 'none',
-          SecurityOpt: ['no-new-privileges'],
-          Binds: []
-        }
-    });
-    console.log(`✅ [PYTHON] Container created: ${container.id}`);
-    return container;
-  } catch (error) {
-    console.error(`❌ [PYTHON] Failed to create container:`, error);
-    throw error;
-  }
-}
-
-// Helper function to fetch decoded stream with timeout
-function fetchDecodedStream(loggerStream: NodeJS.ReadableStream, rawLogBuffer: Buffer[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      console.log('⏰ [PYTHON] Timer called - TLE');
-      reject(new Error('TLE'));
-    }, 4000);
-
-    loggerStream.on('end', () => {
-      clearTimeout(timer);
-      console.log('📝 [PYTHON] Stream ended, processing logs...');
-      
-      // Concatenate all collected log chunks into one complete buffer
-      const completeStreamData = Buffer.concat(rawLogBuffer);
-      
-      // Decode the complete log stream
-      const decodedStream = demultiplexDockerLogs(completeStreamData);
-      
-      console.log('🔍 [PYTHON] Decoded stream:', {
-        stdoutLength: decodedStream.stdout.length,
-        stderrLength: decodedStream.stderr.length,
-        stdout: decodedStream.stdout.substring(0, 200) + '...',
-        stderr: decodedStream.stderr.substring(0, 200) + '...'
-      });
-      
-      if (decodedStream.stderr) {
-        reject(new Error(decodedStream.stderr));
-      } else {
-        resolve(decodedStream.stdout);
-      }
-    });
-  });
+interface TestResult {
+  testcase: any;
+  output: string;
+  passed: boolean;
+  error?: string;
 }
 
 export async function runPython(problem: Problem, userCode: string): Promise<ExecutionResponse> {
-  console.log('🚀 [PYTHON] Starting Python execution...');
-  console.log('📋 [PYTHON] Problem title:', problem.title);
-  console.log('📋 [PYTHON] User code length:', userCode.length);
-  console.log('📋 [PYTHON] Number of test cases:', problem.testcases?.length || 0);
-  
-  const docker = new Docker({ socketPath: '/var/run/docker.sock' });
-  let container: any = null;
+  console.log('🐍 [PYTHON] Starting Python execution...');
   
   try {
-    // Extract the Solution class content from user code
-    let solutionContent = userCode;
-    console.log('🔍 [PYTHON] Original user code:', userCode.substring(0, 200) + '...');
-    
-    // If user provided full class, extract just the content
-    if (userCode.includes('class Solution')) {
-      console.log('🔍 [PYTHON] Detected full class, extracting content...');
-      const classMatch = userCode.match(/class Solution\s*:([\s\S]*)/);
-      if (classMatch) {
-        solutionContent = classMatch[1].trim();
-        console.log('🔍 [PYTHON] Extracted class content length:', solutionContent.length);
-      } else {
-        console.log('⚠️ [PYTHON] Could not extract class content, using full code');
-      }
-    } else {
-      console.log('🔍 [PYTHON] Using user code as-is (no class wrapper detected)');
+    // Find Python code stub
+    const stub = problem.codeStubs.find(s => s.language === 'PYTHON');
+    if (!stub) {
+      throw new Error('Python code stub not found');
     }
-    
-    // Extract method name and parameter type from user code
-    const methodMatch = userCode.match(/def\s+(\w+)\s*\([^)]*\)\s*->\s*([^:]*):/);
-    const methodName = methodMatch ? methodMatch[1] : 'solve';
-    const returnType = methodMatch ? methodMatch[2].trim() : 'Any';
-    
-    // Also try to extract parameter info for better type detection
-    const paramMatch = userCode.match(/def\s+\w+\s*\(([^)]*)\)/);
-    const paramInfo = paramMatch ? paramMatch[1].trim() : '';
-    
-    console.log('🔍 [PYTHON] Extracted method name:', methodName);
-    console.log('🔍 [PYTHON] Extracted return type:', returnType);
-    console.log('🔍 [PYTHON] Parameter info:', paramInfo);
-    console.log('🔍 [PYTHON] Method regex match:', methodMatch ? 'Found' : 'Not found, using default "solve"');
-    
-    // Build the complete Python program
-    const fullCode = [
-      '# Common imports for coding problems',
-      'import sys',
-      'import os',
-      'from typing import *',
-      'from collections import *',
-      'import math',
-      'import heapq',
-      'import ast',
-      'import json',
-      '',
-      'class Solution:',
-      `    ${solutionContent}`,
-      '',
-      'def main():',
-      '    # Read input from stdin',
-      '    input_data = input().strip()',
-      '',
-      '    # Create solution instance',
-      '    solution = Solution()',
-      '',
-      '    # Execute and print result',
-      '    try:',
-      '        # Remove quotes from input if present',
-      '        clean_input = input_data',
-      '        if input_data.startswith(\'"\') and input_data.endswith(\'"\'):',
-      '            clean_input = input_data[1:-1]',
-      '',
-      '        # Parse input based on method signature',
-      `        param_type = "${returnType}"`,
-      `        param_info = "${paramInfo}"`,
-      '        print(f"DEBUG: param_type = {param_type}")',
-      '        print(f"DEBUG: param_info = {param_info}")',
-      '        print(f"DEBUG: raw input = {input_data}")',
-      '',
-      '        # Remove outer quotes if present',
-      '        clean_input = input_data',
-      '        if clean_input.startswith(\'"\') and clean_input.endswith(\'"\'):',
-      '            clean_input = clean_input[1:-1]',
-      '        print(f"DEBUG: clean_input = {clean_input}")',
-      '',
-      '        # First, check if this is a string input (most common case)',
-      '        if param_info and "str" in param_info and "List" not in param_info:',
-      '            print("DEBUG: String parameter detected")',
-      '            # For string parameters, use the clean input directly',
-      '            parsed_input = clean_input',
-      '            print(f"DEBUG: parsed_input = {parsed_input}")',
-      '        elif clean_input.startswith(\'[\') and clean_input.endswith(\']\'):',
-      '            print("DEBUG: Array input detected")',
-      '            # Parse array/list input',
-      '            try:',
-      '                parsed_input = ast.literal_eval(clean_input)',
-      '                print(f"DEBUG: ast.literal_eval successful, parsed_input = {parsed_input}")',
-      '            except (ValueError, SyntaxError):',
-      '                print("DEBUG: ast.literal_eval failed, parsing manually")',
-      '                # Manual parsing for complex cases',
-      '                array_content = clean_input[1:-1]',
-      '                print(f"DEBUG: array_content = {array_content}")',
-      '                if not array_content.strip():',
-      '                    print("DEBUG: Empty array detected")',
-      '                    parsed_input = []',
-      '                else:',
-      '                    # Split by comma and parse each element',
-      '                    elements = [elem.strip() for elem in array_content.split(\',\')]',
-      '                    print(f"DEBUG: elements = {elements}")',
-      '                    # Check if elements are quoted (strings)',
-      '                    if elements and elements[0].startswith(\'"\') and elements[0].endswith(\'"\'):',
-      '                        print("DEBUG: String array detected")',
-      '                        parsed_input = [elem[1:-1] for elem in elements]',
-      '                    elif elements and elements[0] in [\'true\', \'false\']:',
-      '                        print("DEBUG: Boolean array detected")',
-      '                        parsed_input = [elem.lower() == \'true\' for elem in elements]',
-      '                    else:',
-      '                        print("DEBUG: Number array detected")',
-      '                        # Try to parse as numbers',
-      '                        try:',
-      '                            if any(\'.\' in elem for elem in elements):',
-      '                                parsed_input = [float(elem) for elem in elements]',
-      '                                print("DEBUG: Parsed as float array")',
-      '                            else:',
-      '                                parsed_input = [int(elem) for elem in elements]',
-      '                                print("DEBUG: Parsed as int array")',
-      '                        except ValueError:',
-      '                            print("DEBUG: Number parsing failed, using as string array")',
-      '                            parsed_input = elements',
-      '        elif clean_input.lower() in [\'true\', \'false\']:',
-      '            print("DEBUG: Boolean input detected")',
-      '            # Boolean input',
-      '            parsed_input = clean_input.lower() == \'true\'',
-      '            print(f"DEBUG: parsed_input = {parsed_input}")',
-      '        elif len(clean_input) == 1:',
-      '            print("DEBUG: Single character input detected")',
-      '            # Single character',
-      '            parsed_input = clean_input',
-      '            print(f"DEBUG: parsed_input = {parsed_input}")',
-      '        else:',
-      '            print("DEBUG: Number or string input detected")',
-      '            # Try to parse as number, otherwise use as string',
-      '            if param_info and "str" in param_info and "List" not in param_info:',
-      '                print("DEBUG: String parameter detected in fallback")',
-      '                # For string parameters, use the clean input directly',
-      '                parsed_input = clean_input',
-      '                print(f"DEBUG: parsed_input = {parsed_input}")',
-      '            else:',
-      '                try:',
-      '                    if \'.\' in clean_input:',
-      '                        parsed_input = float(clean_input)',
-      '                        print(f"DEBUG: Parsed as float: {parsed_input}")',
-      '                    else:',
-      '                        parsed_input = int(clean_input)',
-      '                        print(f"DEBUG: Parsed as int: {parsed_input}")',
-      '                except ValueError:',
-      '                    parsed_input = clean_input',
-      '                    print(f"DEBUG: ValueError, using as string: {parsed_input}")',
-      '',
-      '        print(f"DEBUG: Final parsed_input type: {type(parsed_input).__name__}")',
-      '        print(f"DEBUG: Final parsed_input value: {parsed_input}")',
-      '',
-      '        # Ensure the parsed input matches the expected type if possible',
-      '        if param_info and "List" in param_info and "str" not in param_info:',
-      '            if not isinstance(parsed_input, list):',
-      '                parsed_input = [parsed_input]',
-      '                print("DEBUG: Wrapped in list")',
-      '        elif param_info and "str" in param_info and "List" not in param_info:',
-      '            if not isinstance(parsed_input, str):',
-      '                parsed_input = str(parsed_input)',
-      '                print("DEBUG: Converted to string")',
-      '        elif param_info and "int" in param_info and "List" not in param_info:',
-      '            if not isinstance(parsed_input, int):',
-      '                try:',
-      '                    parsed_input = int(parsed_input)',
-      '                    print("DEBUG: Converted to int")',
-      '                except (ValueError, TypeError):',
-      '                    pass  # Keep original if conversion fails',
-      '        elif param_info and "float" in param_info and "List" not in param_info:',
-      '            if not isinstance(parsed_input, float):',
-      '                try:',
-      '                    parsed_input = float(parsed_input)',
-      '                    print("DEBUG: Converted to float")',
-      '                except (ValueError, TypeError):',
-      '                    pass  # Keep original if conversion fails',
-      '        elif param_info and "bool" in param_info and "List" not in param_info:',
-      '            if not isinstance(parsed_input, bool):',
-      '                parsed_input = bool(parsed_input)',
-      '                print("DEBUG: Converted to bool")',
-      '',
-      '        print(f"DEBUG: About to call method with param_type: {param_type}")',
-      `        result = solution.${methodName}(parsed_input)`,
-      '        print("DEBUG: Method call successful")',
-      '        print(f"DEBUG: result = {result}")',
-      '        print(result)',
-      '    except Exception as e:',
-      '        print(f"Error: {e}", file=sys.stderr)',
-      '',
-      'if __name__ == "__main__":',
-      '    main()'
-    ].join('\n');
 
-    console.log('📝 [PYTHON] Generated code length:', fullCode.length);
-    console.log('📝 [PYTHON] Generated code preview:', fullCode.substring(0, 500) + '...');
+    // Extract function name from userSnippet
+    const functionName = extractFunctionName(stub.userSnippet);
+    console.log('🔍 [PYTHON] Extracted function name:', functionName);
+
+    // Generate complete code with test runner
+    const completeCode = generatePythonCode(stub, userCode, problem.testcases, functionName);
+    console.log('📝 [PYTHON] Generated complete code');
+
+    // Create temporary file
+    const tempFile = join(tmpdir(), `python_${uuidv4()}.py`);
+    await writeFile(tempFile, completeCode, 'utf8');
+    console.log('💾 [PYTHON] Created temp file:', tempFile);
+
+    // Execute in Docker container
+    const result = await executePythonInDocker(tempFile, problem.testcases.length);
+    console.log('✅ [PYTHON] Execution completed');
+
+    // Clean up temp file
+    try {
+      await unlink(tempFile);
+    } catch (cleanupError) {
+      console.warn('⚠️ [PYTHON] Failed to cleanup temp file:', cleanupError);
+    }
+
+    return result;
+  } catch (error: any) {
+    console.error('❌ [PYTHON] Execution failed:', error);
+    throw error;
+  }
+}
+
+function extractFunctionName(userSnippet: string): string {
+  // Extract function name from patterns like:
+  // "def isValid(self, s):" -> "isValid"
+  // "def maxSubArray(self, nums):" -> "maxSubArray"
+  const functionMatch = userSnippet.match(/def\s+(\w+)\s*\(/);
+  if (!functionMatch) {
+    throw new Error('Could not extract function name from userSnippet');
+  }
+  return functionMatch[1];
+}
+
+function generatePythonCode(stub: any, userCode: string, testcases: any[], functionName: string): string {
+  const startSnippet = stub.startSnippet || '';
+  const endSnippet = stub.endSnippet || '';
+  
+  // Combine the code
+  const solutionCode = `${startSnippet}\n${userCode}\n${endSnippet}`;
+  
+  // Generate test runner
+  const testRunner = generatePythonTestRunner(testcases, functionName);
+  
+  return `${solutionCode}\n\n${testRunner}`;
+}
+
+function generatePythonTestRunner(testcases: any[], functionName: string): string {
+  let testRunner = `
+# Test Runner
+if __name__ == "__main__":
+    solution = Solution()
+    test_cases = [
+`;
+
+  // Add test cases
+  testcases.forEach((testcase, index) => {
+    const input = testcase.input;
+    const expectedOutput = testcase.output;
     
-    // Prepare test cases
-    const testCases = problem.testcases || [];
-    console.log(`🧪 [PYTHON] Processing ${testCases.length} test cases`);
+    testRunner += `        (${input}, ${expectedOutput}),  # Test case ${index + 1}\n`;
+  });
+
+  testRunner += `    ]
     
-    let allOutputs = '';
-    let passedTests = 0;
-    
-    for (let i = 0; i < testCases.length; i++) {
-      const testCase = testCases[i];
-      const input = testCase.input;
-      const expectedOutput = testCase.output;
+    for i, (input_data, expected) in enumerate(test_cases, 1):
+        try:
+            result = solution.${functionName}(input_data)
+            # Convert result to string for comparison
+            result_str = str(result).lower() if isinstance(result, bool) else str(result)
+            expected_str = str(expected).lower() if isinstance(expected, bool) else str(expected)
+            
+            print(f"TEST_{i}:{result_str}")
+        except Exception as e:
+            print(f"TEST_{i}:ERROR:{str(e)}")
+`;
+
+  return testRunner;
+}
+
+async function executePythonInDocker(tempFile: string, testCaseCount: number): Promise<ExecutionResponse> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      // Pull Python Docker image if not exists
+      await pullDockerImage('python:3.9-slim');
       
-      console.log(`🧪 [PYTHON] Running test case ${i + 1}/${testCases.length}`);
-      console.log(`📥 [PYTHON] Test case ${i + 1} input:`, input);
-      console.log(`📥 [PYTHON] Test case ${i + 1} expected output:`, expectedOutput);
-      
-      // Create the run command using heredoc to avoid escaping issues
-      const runCommand = `cat > main.py << 'EOF'
-${fullCode}
-EOF
-echo '${input}' | python main.py`;
-      
-      console.log('🔧 [PYTHON] Run command length:', runCommand.length);
-      
-      // Pull image if needed
-      await pullImage(docker, PYTHON_IMAGE);
-      
-      // Create and start container
-      container = await createContainer(docker, PYTHON_IMAGE, ['/bin/sh', '-c', runCommand]);
+      // Create container
+      const container = await docker.createContainer({
+        Image: 'python:3.9-slim',
+        Cmd: ['python', '/app/solution.py'],
+        HostConfig: {
+          Binds: [`${tempFile}:/app/solution.py:ro`],
+          Memory: 512 * 1024 * 1024, // 512MB memory limit
+          MemorySwap: 0,
+          CpuPeriod: 100000,
+          CpuQuota: 50000, // 50% CPU limit
+          NetworkMode: 'none', // No network access
+          SecurityOpt: ['no-new-privileges'],
+          Tmpfs: {
+            '/tmp': 'rw,noexec,nosuid,size=100m'
+          }
+        },
+        WorkingDir: '/app',
+        AttachStdout: true,
+        AttachStderr: true,
+        OpenStdin: false,
+        StdinOnce: false
+      });
+
+      console.log('🐳 [PYTHON] Created Docker container:', container.id);
+
+      // Start container
       await container.start();
-      
-      // Set up log collection
-      const rawLogBuffer: Buffer[] = [];
-      const loggerStream = await container.logs({
+      console.log('🚀 [PYTHON] Started container');
+
+      // Get output stream
+      const stream = await container.logs({
         stdout: true,
         stderr: true,
-        timestamps: false,
-        follow: true
+        follow: true,
+        tail: 'all'
       });
-      
-      loggerStream.on('data', (chunks: Buffer) => {
-        rawLogBuffer.push(chunks);
-      });
-      
-      try {
-        const codeResponse = await fetchDecodedStream(loggerStream, rawLogBuffer);
-        const trimmedResponse = codeResponse.trim();
-        const trimmedExpected = expectedOutput.trim();
-        
-        console.log(`📊 [PYTHON] Test ${i + 1} - Raw response: "${codeResponse}"`);
-        console.log(`📊 [PYTHON] Test ${i + 1} - Trimmed response: "${trimmedResponse}"`);
-        console.log(`📊 [PYTHON] Test ${i + 1} - Expected: "${trimmedExpected}"`);
-        console.log(`📊 [PYTHON] Test ${i + 1} - Match: ${trimmedResponse === trimmedExpected ? '✅ PASS' : '❌ FAIL'}`);
-        
-        if (trimmedResponse === trimmedExpected) {
-          passedTests++;
-          console.log(`✅ [PYTHON] Test ${i + 1} passed!`);
-        } else {
-          console.log(`❌ [PYTHON] Test ${i + 1} failed!`);
+
+      let stdout = '';
+      let stderr = '';
+      let hasOutput = false;
+
+      // Set timeout for execution
+      const timeout = setTimeout(async () => {
+        console.log('⏰ [PYTHON] Execution timeout, killing container');
+        try {
+          await container.kill();
+        } catch (killError) {
+          console.warn('⚠️ [PYTHON] Failed to kill container:', killError);
         }
-        allOutputs += `${trimmedResponse}\n`;
-        console.log(`📝 [PYTHON] Added to allOutputs: "${trimmedResponse}"`);
+        reject(new Error('Execution timeout (10 seconds)'));
+      }, 10000);
+
+      // Process output stream
+      stream.on('data', (chunk: Buffer) => {
+        const data = chunk.toString('utf8');
+        hasOutput = true;
         
-              } catch (error) {
-          if (error instanceof Error) {
-            console.log(`❌ [PYTHON] Test ${i + 1} error:`, error.message);
-            if (error.message === 'TLE') {
-              await container.kill();
-            }
-            allOutputs += `ERROR\n`;
-          } else {
-            allOutputs += `ERROR\n`;
-          }
-      } finally {
-        // Remove container
-        if (container) {
+        // Remove Docker log headers (8-byte headers)
+        const cleanData = removeDockerHeaders(data);
+        
+        if (cleanData) {
+          stdout += cleanData;
+        }
+      });
+
+      stream.on('end', async () => {
+        clearTimeout(timeout);
+        
+        try {
+          // Get container info
+          const containerInfo = await container.inspect();
+          const exitCode = containerInfo.State.ExitCode;
+          
+          console.log('📊 [PYTHON] Container exit code:', exitCode);
+          console.log('📤 [PYTHON] Stdout:', stdout);
+          console.log('📤 [PYTHON] Stderr:', stderr);
+
+          // Clean up container
           await container.remove();
-          container = null;
+          console.log('🧹 [PYTHON] Container removed');
+
+          if (exitCode === 0) {
+            // Parse test results
+            const results = parsePythonOutput(stdout, testCaseCount);
+            resolve({
+              output: results.join('\n'),
+              status: 'success'
+            });
+          } else {
+            // Handle execution errors
+            const errorMessage = stderr || 'Execution failed with non-zero exit code';
+            reject(new Error(errorMessage));
+          }
+        } catch (cleanupError) {
+          console.error('❌ [PYTHON] Cleanup error:', cleanupError);
+          reject(cleanupError);
         }
-      }
+      });
+
+      stream.on('error', (error) => {
+        clearTimeout(timeout);
+        console.error('❌ [PYTHON] Stream error:', error);
+        reject(error);
+      });
+
+    } catch (error) {
+      console.error('❌ [PYTHON] Docker execution error:', error);
+      reject(error);
     }
-    
-    // Determine final status
-    const status = passedTests === testCases.length ? 'SUCCESS' : 'WA';
-    console.log(`✅ [PYTHON] Execution completed: ${passedTests}/${testCases.length} tests passed`);
-    console.log(`📊 [PYTHON] Final status: ${status}`);
-    console.log(`📝 [PYTHON] Final output:`, allOutputs);
-    console.log(`📝 [PYTHON] Output length:`, allOutputs.length);
-    
-    return { output: allOutputs, status };
-    
-  } catch (error) {
-    console.error('❌ [PYTHON] Execution error:', error);
-    if (error instanceof Error) {
-      return { output: error.message, status: 'ERROR' };
+  });
+}
+
+function removeDockerHeaders(data: string): string {
+  // Docker log format: [8 bytes header][payload]
+  // We need to skip the 8-byte headers
+  const lines = data.split('\n');
+  const cleanLines = lines.map(line => {
+    if (line.length >= 8) {
+      return line.substring(8);
+    }
+    return line;
+  });
+  return cleanLines.join('\n');
+}
+
+function parsePythonOutput(output: string, expectedTestCount: number): string[] {
+  const lines = output.trim().split('\n');
+  const results: string[] = [];
+  
+  for (let i = 0; i < expectedTestCount; i++) {
+    const line = lines[i];
+    if (line && line.startsWith(`TEST_${i + 1}:`)) {
+      const result = line.substring(`TEST_${i + 1}:`.length);
+      results.push(result);
     } else {
-      return { output: String(error), status: 'ERROR' };
+      // Missing or malformed output
+      results.push('');
     }
-  } finally {
-    // Ensure container is removed
-    if (container) {
-      try {
-        await container.remove();
-      } catch (error) {
-        console.error('❌ [PYTHON] Failed to remove container:', error);
-      }
-    }
+  }
+  
+  return results;
+}
+
+async function pullDockerImage(imageName: string): Promise<void> {
+  try {
+    const image = docker.getImage(imageName);
+    await image.inspect();
+    console.log('✅ [PYTHON] Docker image already exists:', imageName);
+  } catch (error) {
+    console.log('📥 [PYTHON] Pulling Docker image:', imageName);
+    return new Promise((resolve, reject) => {
+      docker.pull(imageName, (err, stream) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        
+        docker.modem.followProgress(stream, (err) => {
+          if (err) {
+            reject(err);
+          } else {
+            console.log('✅ [PYTHON] Docker image pulled successfully:', imageName);
+            resolve();
+          }
+        });
+      });
+    });
   }
 }
