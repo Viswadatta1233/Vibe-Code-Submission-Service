@@ -288,7 +288,7 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       console.log('📁 [JAVA-DOCKER] Using bind mount approach...');
       
       // Mount the file directly to a fixed location in container
-      const containerFilePath = '/tmp/java/Solution.java';
+      const containerFilePath = '/tmp/Solution.java';
       
       console.log('📁 [JAVA-DOCKER] Source file:', tempFile);
       console.log('📁 [JAVA-DOCKER] Container path:', containerFilePath);
@@ -299,7 +299,7 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       console.log('🐳 [JAVA-DOCKER] Creating container with bind mount...');
       const container = await docker.createContainer({
         Image: 'openjdk:11-jdk-slim',
-        Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /tmp ===" && ls -la /tmp && echo "=== Listing /tmp/java ===" && ls -la /tmp/java && echo "=== Copying file ===" && cp /tmp/java/Solution.java /app/ && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
+        Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /tmp ===" && ls -la /tmp && echo "=== Checking if file exists ===" && test -f /tmp/Solution.java && echo "File exists" || echo "File does not exist" && echo "=== Copying file ===" && cp /tmp/Solution.java /app/ && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
         HostConfig: {
           Binds: [`${tempFile}:${containerFilePath}:ro`],
           Memory: 512 * 1024 * 1024, // 512MB memory limit
