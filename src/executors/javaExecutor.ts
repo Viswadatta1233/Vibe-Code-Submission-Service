@@ -297,12 +297,13 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       
       console.log('📁 [JAVA-DOCKER] File copied to temp directory:', containerFilePath);
       console.log('📁 [JAVA-DOCKER] Temp directory contents:', require('fs').readdirSync(tempDir));
+      console.log('📁 [JAVA-DOCKER] Bind mount path:', `${tempDir}:/tmp/java:ro`);
       
       // Create container with bind mount
       console.log('🐳 [JAVA-DOCKER] Creating container with bind mount...');
       const container = await docker.createContainer({
         Image: 'openjdk:11-jdk-slim',
-        Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /app ===" && ls -la /app && echo "=== Copying file ===" && cp /tmp/java/Solution.java /app/ && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
+        Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /tmp ===" && ls -la /tmp && echo "=== Listing /tmp/java ===" && ls -la /tmp/java && echo "=== Copying file ===" && cp /tmp/java/Solution.java /app/ && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
         HostConfig: {
           Binds: [`${tempDir}:/tmp/java:ro`],
           Memory: 512 * 1024 * 1024, // 512MB memory limit
@@ -312,7 +313,7 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
           NetworkMode: 'none', // No network access
           SecurityOpt: ['no-new-privileges'],
           Tmpfs: {
-            '/tmp': 'rw,noexec,nosuid,size=100m'
+            '/tmp/tmp': 'rw,noexec,nosuid,size=100m'
           }
         },
         WorkingDir: '/app',
