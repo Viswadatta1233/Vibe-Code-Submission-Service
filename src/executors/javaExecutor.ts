@@ -284,12 +284,27 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       await pullDockerImage('openjdk:11-jdk-slim');
       console.log('✅ [JAVA-DOCKER] Docker image ready');
       
-      // Create container
-      console.log('🐳 [JAVA-DOCKER] Creating Docker container...');
+      // Use bind mount approach - create temp directory and mount it
+      console.log('📁 [JAVA-DOCKER] Using bind mount approach...');
+      
+      // Create a subdirectory in temp and copy file there
+      const tempDir = require('path').join(require('os').tmpdir(), `java_${Date.now()}`);
+      const containerFilePath = require('path').join(tempDir, 'Solution.java');
+      
+      console.log('📁 [JAVA-DOCKER] Creating temp directory:', tempDir);
+      require('fs').mkdirSync(tempDir, { recursive: true });
+      require('fs').copyFileSync(tempFile, containerFilePath);
+      
+      console.log('📁 [JAVA-DOCKER] File copied to temp directory:', containerFilePath);
+      console.log('📁 [JAVA-DOCKER] Temp directory contents:', require('fs').readdirSync(tempDir));
+      
+      // Create container with bind mount
+      console.log('🐳 [JAVA-DOCKER] Creating container with bind mount...');
       const container = await docker.createContainer({
         Image: 'openjdk:11-jdk-slim',
-        Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /app ===" && ls -la /app && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
+        Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /app ===" && ls -la /app && echo "=== Copying file ===" && cp /tmp/java/Solution.java /app/ && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
         HostConfig: {
+          Binds: [`${tempDir}:/tmp/java:ro`],
           Memory: 512 * 1024 * 1024, // 512MB memory limit
           MemorySwap: 0,
           CpuPeriod: 100000,
@@ -306,54 +321,12 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
         OpenStdin: false,
         StdinOnce: false
       });
-
-      console.log('🐳 [JAVA-DOCKER] Created Docker container:', container.id);
-
-      // Copy file to container using exec command
-      console.log('📁 [JAVA-DOCKER] Copying file to container...');
-      console.log('📁 [JAVA-DOCKER] File details:');
-      console.log('  - File path:', tempFile);
-      console.log('  - File size:', require('fs').statSync(tempFile).size, 'bytes');
       
-      // Read file content
-      const javaFileContent = require('fs').readFileSync(tempFile, 'utf8');
-      console.log('📁 [JAVA-DOCKER] File content length:', javaFileContent.length, 'characters');
+      console.log('🐳 [JAVA-DOCKER] Created container with bind mount:', container.id);
       
-      // Start container first
-      console.log('🚀 [JAVA-DOCKER] Starting container for file copy...');
+      // Start the container
       await container.start();
-      console.log('🚀 [JAVA-DOCKER] Container started for file copy');
-      
-      // Use a simpler approach - write file content using base64
-      console.log('📁 [JAVA-DOCKER] Writing file content to container...');
-      
-      // Encode file content as base64 to avoid shell escaping issues
-      const base64Content = Buffer.from(javaFileContent, 'utf8').toString('base64');
-      
-      const writeResult = await container.exec({
-        Cmd: ['sh', '-c', `echo '${base64Content}' | base64 -d > /app/Solution.java`],
-        AttachStdout: true,
-        AttachStderr: true
-      });
-      
-      // Wait for write to complete without using problematic stream handling
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          console.log('📁 [JAVA-DOCKER] Write operation timed out, assuming success');
-          resolve(null);
-        }, 5000);
-        
-        writeResult.modem.followProgress(writeResult, (err: any, res: any) => {
-          clearTimeout(timeout);
-          if (err) {
-            console.error('❌ [JAVA-DOCKER] Write operation failed:', err);
-            reject(err);
-          } else {
-            console.log('✅ [JAVA-DOCKER] Write operation completed');
-            resolve(res);
-          }
-        });
-      });
+      console.log('🚀 [JAVA-DOCKER] Container started with bind mount');
       
       console.log('✅ [JAVA-DOCKER] File copied to container');
       
