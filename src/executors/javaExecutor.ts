@@ -309,41 +309,39 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
 
       console.log('🐳 [JAVA-DOCKER] Created Docker container:', container.id);
 
-      // Copy file to container using putArchive
+      // Copy file to container using exec command
       console.log('📁 [JAVA-DOCKER] Copying file to container...');
       console.log('📁 [JAVA-DOCKER] File details:');
       console.log('  - File path:', tempFile);
       console.log('  - File size:', require('fs').statSync(tempFile).size, 'bytes');
-      console.log('  - File directory:', require('path').dirname(tempFile));
-      console.log('  - File basename:', require('path').basename(tempFile));
       
-      const tar = require('tar');
-      const { Readable } = require('stream');
+      // Read file content
+      const javaFileContent = require('fs').readFileSync(tempFile, 'utf8');
+      console.log('📁 [JAVA-DOCKER] File content length:', javaFileContent.length, 'characters');
       
-      // Create a tar stream with the Java file
-      console.log('📁 [JAVA-DOCKER] Creating tar stream...');
-      const tarStream = tar.c({
-        gzip: false,
-        cwd: require('path').dirname(tempFile)
-      }, [require('path').basename(tempFile)]);
-      
-      // Convert stream to buffer
-      console.log('📁 [JAVA-DOCKER] Converting tar stream to buffer...');
-      const chunks: Buffer[] = [];
-      tarStream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      await new Promise((resolve) => tarStream.on('end', resolve));
-      const tarBuffer = Buffer.concat(chunks);
-      console.log('📁 [JAVA-DOCKER] Tar buffer size:', tarBuffer.length, 'bytes');
-      
-      // Put the archive into the container
-      console.log('📁 [JAVA-DOCKER] Putting archive into container...');
-      await container.putArchive(tarBuffer, { path: '/app' });
-      console.log('✅ [JAVA-DOCKER] File copied to container');
-
-      // Start container
-      console.log('🚀 [JAVA-DOCKER] Starting container...');
+      // Start container first
+      console.log('🚀 [JAVA-DOCKER] Starting container for file copy...');
       await container.start();
-      console.log('🚀 [JAVA-DOCKER] Container started successfully');
+      console.log('🚀 [JAVA-DOCKER] Container started for file copy');
+      
+      // Use echo to write file content to container
+      console.log('📁 [JAVA-DOCKER] Writing file content to container...');
+      const writeResult = await container.exec({
+        Cmd: ['sh', '-c', `echo '${javaFileContent.replace(/'/g, "'\"'\"'")}' > /app/Solution.java`],
+        AttachStdout: true,
+        AttachStderr: true
+      });
+      
+      // Wait for write to complete
+      await new Promise((resolve, reject) => {
+        writeResult.modem.demuxStream(writeResult, process.stdout, process.stderr);
+        writeResult.modem.followProgress(writeResult, (err: any, res: any) => {
+          if (err) reject(err);
+          else resolve(res);
+        });
+      });
+      
+      console.log('✅ [JAVA-DOCKER] File copied to container');
       
       // Log the file content that was copied
       console.log('📁 [JAVA-DOCKER] File content that was copied:');
