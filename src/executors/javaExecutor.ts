@@ -74,7 +74,7 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       console.error('❌ [JAVA] Generated code missing Solution class');
       throw new Error('Generated code missing Solution class');
     }
-    if (!completeCode.includes(`public boolean ${functionName}`)) {
+    if (!completeCode.includes(`public `) || !completeCode.includes(` ${functionName}(`)) {
       console.error(`❌ [JAVA] Generated code missing ${functionName} method`);
       throw new Error(`Generated code missing ${functionName} method`);
     }
