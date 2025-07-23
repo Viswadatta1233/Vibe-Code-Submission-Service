@@ -194,7 +194,7 @@ async function executeCppInDocker(tempFile: string, testCaseCount: number): Prom
         stdout: true,
         stderr: true,
         follow: true,
-        tail: 'all'
+        tail: 100
       });
 
       let stdout = '';
@@ -213,57 +213,88 @@ async function executeCppInDocker(tempFile: string, testCaseCount: number): Prom
       }, 10000);
 
       // Process output stream
-      stream.on('data', (chunk: Buffer) => {
-        const data = chunk.toString('utf8');
-        hasOutput = true;
-        
-        // Remove Docker log headers (8-byte headers)
-        const cleanData = removeDockerHeaders(data);
-        
-        if (cleanData) {
-          stdout += cleanData;
-        }
-      });
-
-      stream.on('end', async () => {
-        clearTimeout(timeout);
-        
-        try {
-          // Get container info
-          const containerInfo = await container.inspect();
-          const exitCode = containerInfo.State.ExitCode;
+      if (stream && typeof stream.on === 'function') {
+        stream.on('data', (chunk: Buffer) => {
+          const data = chunk.toString('utf8');
+          hasOutput = true;
           
-          console.log('📊 [CPP] Container exit code:', exitCode);
-          console.log('📤 [CPP] Stdout:', stdout);
-          console.log('📤 [CPP] Stderr:', stderr);
-
-          // Clean up container
-          await container.remove();
-          console.log('🧹 [CPP] Container removed');
-
-          if (exitCode === 0) {
-            // Parse test results
-            const results = parseCppOutput(stdout, testCaseCount);
-            resolve({
-              output: results.join('\n'),
-              status: 'success'
-            });
-          } else {
-            // Handle compilation or execution errors
-            const errorMessage = stderr || 'Execution failed with non-zero exit code';
-            reject(new Error(errorMessage));
+          // Remove Docker log headers (8-byte headers)
+          const cleanData = removeDockerHeaders(data);
+          
+          if (cleanData) {
+            stdout += cleanData;
           }
-        } catch (cleanupError) {
-          console.error('❌ [CPP] Cleanup error:', cleanupError);
-          reject(cleanupError);
-        }
-      });
+        });
 
-      stream.on('error', (error) => {
-        clearTimeout(timeout);
-        console.error('❌ [CPP] Stream error:', error);
-        reject(error);
-      });
+        stream.on('end', async () => {
+          clearTimeout(timeout);
+          
+          try {
+            // Get container info
+            const containerInfo = await container.inspect();
+            const exitCode = containerInfo.State.ExitCode;
+            
+            console.log('📊 [CPP] Container exit code:', exitCode);
+            console.log('📤 [CPP] Stdout:', stdout);
+            console.log('📤 [CPP] Stderr:', stderr);
+
+            // Clean up container
+            await container.remove();
+            console.log('🧹 [CPP] Container removed');
+
+            if (exitCode === 0) {
+              // Parse test results
+              const results = parseCppOutput(stdout, testCaseCount);
+              resolve({
+                output: results.join('\n'),
+                status: 'success'
+              });
+            } else {
+              // Handle compilation or execution errors
+              const errorMessage = stderr || 'Execution failed with non-zero exit code';
+              reject(new Error(errorMessage));
+            }
+          } catch (cleanupError) {
+            console.error('❌ [CPP] Cleanup error:', cleanupError);
+            reject(cleanupError);
+          }
+        });
+
+        stream.on('error', (error) => {
+          clearTimeout(timeout);
+          console.error('❌ [CPP] Stream error:', error);
+          reject(error);
+        });
+      } else {
+        // Fallback: wait for container to finish and get logs
+        setTimeout(async () => {
+          clearTimeout(timeout);
+          try {
+            const logs = await container.logs({ stdout: true, stderr: true });
+            const containerInfo = await container.inspect();
+            const exitCode = containerInfo.State.ExitCode;
+            
+            console.log('📊 [CPP] Container exit code:', exitCode);
+            console.log('📤 [CPP] Logs:', logs.toString());
+
+            await container.remove();
+            console.log('🧹 [CPP] Container removed');
+
+            if (exitCode === 0) {
+              const results = parseCppOutput(logs.toString(), testCaseCount);
+              resolve({
+                output: results.join('\n'),
+                status: 'success'
+              });
+            } else {
+              reject(new Error('Execution failed with non-zero exit code'));
+            }
+          } catch (error) {
+            console.error('❌ [CPP] Fallback error:', error);
+            reject(error);
+          }
+        }, 5000);
+      }
 
     } catch (error) {
       console.error('❌ [CPP] Docker execution error:', error);

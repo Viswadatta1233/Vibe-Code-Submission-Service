@@ -153,7 +153,7 @@ async function executePythonInDocker(tempFile: string, testCaseCount: number): P
         stdout: true,
         stderr: true,
         follow: true,
-        tail: 'all'
+        tail: 100
       });
 
       let stdout = '';
@@ -172,57 +172,88 @@ async function executePythonInDocker(tempFile: string, testCaseCount: number): P
       }, 10000);
 
       // Process output stream
-      stream.on('data', (chunk: Buffer) => {
-        const data = chunk.toString('utf8');
-        hasOutput = true;
-        
-        // Remove Docker log headers (8-byte headers)
-        const cleanData = removeDockerHeaders(data);
-        
-        if (cleanData) {
-          stdout += cleanData;
-        }
-      });
-
-      stream.on('end', async () => {
-        clearTimeout(timeout);
-        
-        try {
-          // Get container info
-          const containerInfo = await container.inspect();
-          const exitCode = containerInfo.State.ExitCode;
+      if (stream && typeof stream.on === 'function') {
+        stream.on('data', (chunk: Buffer) => {
+          const data = chunk.toString('utf8');
+          hasOutput = true;
           
-          console.log('📊 [PYTHON] Container exit code:', exitCode);
-          console.log('📤 [PYTHON] Stdout:', stdout);
-          console.log('📤 [PYTHON] Stderr:', stderr);
-
-          // Clean up container
-          await container.remove();
-          console.log('🧹 [PYTHON] Container removed');
-
-          if (exitCode === 0) {
-            // Parse test results
-            const results = parsePythonOutput(stdout, testCaseCount);
-            resolve({
-              output: results.join('\n'),
-              status: 'success'
-            });
-          } else {
-            // Handle execution errors
-            const errorMessage = stderr || 'Execution failed with non-zero exit code';
-            reject(new Error(errorMessage));
+          // Remove Docker log headers (8-byte headers)
+          const cleanData = removeDockerHeaders(data);
+          
+          if (cleanData) {
+            stdout += cleanData;
           }
-        } catch (cleanupError) {
-          console.error('❌ [PYTHON] Cleanup error:', cleanupError);
-          reject(cleanupError);
-        }
-      });
+        });
 
-      stream.on('error', (error) => {
-        clearTimeout(timeout);
-        console.error('❌ [PYTHON] Stream error:', error);
-        reject(error);
-      });
+        stream.on('end', async () => {
+          clearTimeout(timeout);
+          
+          try {
+            // Get container info
+            const containerInfo = await container.inspect();
+            const exitCode = containerInfo.State.ExitCode;
+            
+            console.log('📊 [PYTHON] Container exit code:', exitCode);
+            console.log('📤 [PYTHON] Stdout:', stdout);
+            console.log('📤 [PYTHON] Stderr:', stderr);
+
+            // Clean up container
+            await container.remove();
+            console.log('🧹 [PYTHON] Container removed');
+
+            if (exitCode === 0) {
+              // Parse test results
+              const results = parsePythonOutput(stdout, testCaseCount);
+              resolve({
+                output: results.join('\n'),
+                status: 'success'
+              });
+            } else {
+              // Handle execution errors
+              const errorMessage = stderr || 'Execution failed with non-zero exit code';
+              reject(new Error(errorMessage));
+            }
+          } catch (cleanupError) {
+            console.error('❌ [PYTHON] Cleanup error:', cleanupError);
+            reject(cleanupError);
+          }
+        });
+
+        stream.on('error', (error) => {
+          clearTimeout(timeout);
+          console.error('❌ [PYTHON] Stream error:', error);
+          reject(error);
+        });
+      } else {
+        // Fallback: wait for container to finish and get logs
+        setTimeout(async () => {
+          clearTimeout(timeout);
+          try {
+            const logs = await container.logs({ stdout: true, stderr: true });
+            const containerInfo = await container.inspect();
+            const exitCode = containerInfo.State.ExitCode;
+            
+            console.log('📊 [PYTHON] Container exit code:', exitCode);
+            console.log('📤 [PYTHON] Logs:', logs.toString());
+
+            await container.remove();
+            console.log('🧹 [PYTHON] Container removed');
+
+            if (exitCode === 0) {
+              const results = parsePythonOutput(logs.toString(), testCaseCount);
+              resolve({
+                output: results.join('\n'),
+                status: 'success'
+              });
+            } else {
+              reject(new Error('Execution failed with non-zero exit code'));
+            }
+          } catch (error) {
+            console.error('❌ [PYTHON] Fallback error:', error);
+            reject(error);
+          }
+        }, 5000);
+      }
 
     } catch (error) {
       console.error('❌ [PYTHON] Docker execution error:', error);

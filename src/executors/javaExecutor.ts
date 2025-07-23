@@ -184,7 +184,7 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
         stdout: true,
         stderr: true,
         follow: true,
-        tail: 'all'
+        tail: 100
       });
 
       let stdout = '';
@@ -203,57 +203,88 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
       }, 10000);
 
       // Process output stream
-      stream.on('data', (chunk: Buffer) => {
-        const data = chunk.toString('utf8');
-        hasOutput = true;
-        
-        // Remove Docker log headers (8-byte headers)
-        const cleanData = removeDockerHeaders(data);
-        
-        if (cleanData) {
-          stdout += cleanData;
-        }
-      });
-
-      stream.on('end', async () => {
-        clearTimeout(timeout);
-        
-        try {
-          // Get container info
-          const containerInfo = await container.inspect();
-          const exitCode = containerInfo.State.ExitCode;
+      if (stream && typeof stream.on === 'function') {
+        stream.on('data', (chunk: Buffer) => {
+          const data = chunk.toString('utf8');
+          hasOutput = true;
           
-          console.log('📊 [JAVA] Container exit code:', exitCode);
-          console.log('📤 [JAVA] Stdout:', stdout);
-          console.log('📤 [JAVA] Stderr:', stderr);
-
-          // Clean up container
-          await container.remove();
-          console.log('🧹 [JAVA] Container removed');
-
-          if (exitCode === 0) {
-            // Parse test results
-            const results = parseJavaOutput(stdout, testCaseCount);
-            resolve({
-              output: results.join('\n'),
-              status: 'success'
-            });
-          } else {
-            // Handle compilation or execution errors
-            const errorMessage = stderr || 'Execution failed with non-zero exit code';
-            reject(new Error(errorMessage));
+          // Remove Docker log headers (8-byte headers)
+          const cleanData = removeDockerHeaders(data);
+          
+          if (cleanData) {
+            stdout += cleanData;
           }
-        } catch (cleanupError) {
-          console.error('❌ [JAVA] Cleanup error:', cleanupError);
-          reject(cleanupError);
-        }
-      });
+        });
 
-      stream.on('error', (error) => {
-        clearTimeout(timeout);
-        console.error('❌ [JAVA] Stream error:', error);
-        reject(error);
-      });
+        stream.on('end', async () => {
+          clearTimeout(timeout);
+          
+          try {
+            // Get container info
+            const containerInfo = await container.inspect();
+            const exitCode = containerInfo.State.ExitCode;
+            
+            console.log('📊 [JAVA] Container exit code:', exitCode);
+            console.log('📤 [JAVA] Stdout:', stdout);
+            console.log('📤 [JAVA] Stderr:', stderr);
+
+            // Clean up container
+            await container.remove();
+            console.log('🧹 [JAVA] Container removed');
+
+            if (exitCode === 0) {
+              // Parse test results
+              const results = parseJavaOutput(stdout, testCaseCount);
+              resolve({
+                output: results.join('\n'),
+                status: 'success'
+              });
+            } else {
+              // Handle compilation or execution errors
+              const errorMessage = stderr || 'Execution failed with non-zero exit code';
+              reject(new Error(errorMessage));
+            }
+          } catch (cleanupError) {
+            console.error('❌ [JAVA] Cleanup error:', cleanupError);
+            reject(cleanupError);
+          }
+        });
+
+        stream.on('error', (error) => {
+          clearTimeout(timeout);
+          console.error('❌ [JAVA] Stream error:', error);
+          reject(error);
+        });
+      } else {
+        // Fallback: wait for container to finish and get logs
+        setTimeout(async () => {
+          clearTimeout(timeout);
+          try {
+            const logs = await container.logs({ stdout: true, stderr: true });
+            const containerInfo = await container.inspect();
+            const exitCode = containerInfo.State.ExitCode;
+            
+            console.log('📊 [JAVA] Container exit code:', exitCode);
+            console.log('📤 [JAVA] Logs:', logs.toString());
+
+            await container.remove();
+            console.log('🧹 [JAVA] Container removed');
+
+            if (exitCode === 0) {
+              const results = parseJavaOutput(logs.toString(), testCaseCount);
+              resolve({
+                output: results.join('\n'),
+                status: 'success'
+              });
+            } else {
+              reject(new Error('Execution failed with non-zero exit code'));
+            }
+          } catch (error) {
+            console.error('❌ [JAVA] Fallback error:', error);
+            reject(error);
+          }
+        }, 5000);
+      }
 
     } catch (error) {
       console.error('❌ [JAVA] Docker execution error:', error);
