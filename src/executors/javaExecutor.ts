@@ -386,8 +386,7 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
       '                        }',
       '                    }',
       '                }',
-      '            }', // <-- this closes the new else block
-      '            else if (cleanInput.equals("true") || cleanInput.equals("false")) {',
+      '            } else if (cleanInput.equals("true") || cleanInput.equals("false")) {',
       '                System.out.println("DEBUG: Boolean input detected");',
       '                // Boolean input',
       '                parsedInput = Boolean.parseBoolean(cleanInput);',
