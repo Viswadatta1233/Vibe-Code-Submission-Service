@@ -16,19 +16,42 @@ interface TestResult {
 
 export async function runJava(problem: Problem, userCode: string): Promise<ExecutionResponse> {
   console.log('☕ [JAVA] Starting Java execution...');
+  console.log('📊 [JAVA] Input validation:');
+  console.log('  - Problem title:', problem.title);
+  console.log('  - User code length:', userCode.length);
+  console.log('  - Test cases count:', problem.testcases.length);
+  console.log('  - Available code stubs:', problem.codeStubs.map(s => s.language));
+  
+  let tempFile: string | null = null;
   
   try {
     // Find Java code stub
+    console.log('📋 [JAVA] Looking for Java code stub...');
     const stub = problem.codeStubs.find(s => s.language === 'JAVA');
     if (!stub) {
+      console.error('❌ [JAVA] Java code stub not found in problem');
+      console.error('❌ [JAVA] Available stubs:', problem.codeStubs.map(s => s.language));
       throw new Error('Java code stub not found');
     }
+    console.log('📋 [JAVA] Found Java stub');
+    console.log('📋 [JAVA] Stub details:');
+    console.log('  - Start snippet length:', stub.startSnippet?.length || 0);
+    console.log('  - End snippet length:', stub.endSnippet?.length || 0);
+    console.log('  - User snippet length:', stub.userSnippet?.length || 0);
 
     // Extract function name from userSnippet
+    console.log('🔍 [JAVA] Extracting function name from userSnippet...');
+    console.log('🔍 [JAVA] UserSnippet:', stub.userSnippet);
     const functionName = extractFunctionName(stub.userSnippet);
     console.log('🔍 [JAVA] Extracted function name:', functionName);
 
     // Generate complete code with test runner
+    console.log('📝 [JAVA] Generating complete code...');
+    console.log('📝 [JAVA] Input for code generation:');
+    console.log('  - User code length:', userCode.length);
+    console.log('  - Test cases count:', problem.testcases.length);
+    console.log('  - Function name:', functionName);
+    
     const completeCode = generateJavaCode(stub, userCode, problem.testcases, functionName);
     console.log('📝 [JAVA] Generated complete code');
     console.log('📝 [JAVA] Code preview (first 500 chars):', completeCode.substring(0, 500));
@@ -44,44 +67,116 @@ export async function runJava(problem: Problem, userCode: string): Promise<Execu
     console.log('  - Method declaration:', lines.find(line => line.includes(`public boolean ${functionName}`)));
     console.log('  - Main method:', lines.find(line => line.includes('public static void main')));
     console.log('  - Test cases count:', lines.filter(line => line.includes('TEST_')).length);
+    
+    // Validate generated code
+    console.log('🔍 [JAVA] Validating generated code...');
+    if (!completeCode.includes('public class Solution')) {
+      console.error('❌ [JAVA] Generated code missing Solution class');
+      throw new Error('Generated code missing Solution class');
+    }
+    if (!completeCode.includes(`public boolean ${functionName}`)) {
+      console.error(`❌ [JAVA] Generated code missing ${functionName} method`);
+      throw new Error(`Generated code missing ${functionName} method`);
+    }
+    if (!completeCode.includes('public static void main')) {
+      console.error('❌ [JAVA] Generated code missing main method');
+      throw new Error('Generated code missing main method');
+    }
+    console.log('✅ [JAVA] Code validation passed');
 
     // Create temporary file
+    console.log('💾 [JAVA] Creating temporary file...');
     const tempFile = join(tmpdir(), `Solution_${uuidv4()}.java`);
-    await writeFile(tempFile, completeCode, 'utf8');
-    console.log('💾 [JAVA] Created temp file:', tempFile);
+    console.log('💾 [JAVA] Temp file path:', tempFile);
+    
+    try {
+      await writeFile(tempFile, completeCode, 'utf8');
+      console.log('💾 [JAVA] File written successfully');
+    } catch (writeError) {
+      console.error('❌ [JAVA] Failed to write temp file:', writeError);
+      throw new Error(`Failed to write temp file: ${writeError}`);
+    }
+    
     console.log('💾 [JAVA] File size:', completeCode.length, 'bytes');
     console.log('💾 [JAVA] File exists:', require('fs').existsSync(tempFile));
-
-    // Execute in Docker container
-    const result = await executeJavaInDocker(tempFile, problem.testcases.length);
-    console.log('✅ [JAVA] Execution completed');
-
-    // Clean up temp file
+    
+    // Verify file content
     try {
-      await unlink(tempFile);
-    } catch (cleanupError) {
-      console.warn('⚠️ [JAVA] Failed to cleanup temp file:', cleanupError);
+      const writtenContent = await require('fs').readFileSync(tempFile, 'utf8');
+      console.log('💾 [JAVA] Written file size:', writtenContent.length, 'bytes');
+      console.log('💾 [JAVA] Content matches:', writtenContent === completeCode);
+    } catch (readError) {
+      console.error('❌ [JAVA] Failed to read temp file for verification:', readError);
     }
 
+    // Execute in Docker container
+    console.log('🐳 [JAVA] Starting Docker execution...');
+    console.log('🐳 [JAVA] Test cases count:', problem.testcases.length);
+    const result = await executeJavaInDocker(tempFile, problem.testcases.length);
+    console.log('✅ [JAVA] Execution completed');
+    console.log('✅ [JAVA] Result status:', result.status);
+    console.log('✅ [JAVA] Result output length:', result.output.length);
+
+    // Clean up temp file
+    console.log('🧹 [JAVA] Cleaning up temp file...');
+    try {
+      await unlink(tempFile);
+      console.log('🧹 [JAVA] Temp file cleaned up successfully');
+    } catch (cleanupError) {
+      console.warn('⚠️ [JAVA] Failed to cleanup temp file:', cleanupError);
+      console.warn('⚠️ [JAVA] Temp file path:', tempFile);
+    }
+
+    console.log('✅ [JAVA] Java execution completed successfully');
     return result;
   } catch (error: any) {
-    console.error('❌ [JAVA]"""""" Execution faileds:', error);
+    console.error('❌ [JAVA] Execution failed with error:', error);
+    console.error('❌ [JAVA] Error type:', typeof error);
+    console.error('❌ [JAVA] Error message:', error.message);
+    console.error('❌ [JAVA] Error stack:', error.stack);
+    
+    // Clean up temp file on error
+    if (tempFile) {
+      try {
+        console.log('🧹 [JAVA] Cleaning up temp file after error...');
+        await unlink(tempFile);
+        console.log('🧹 [JAVA] Temp file cleaned up after error');
+      } catch (cleanupError) {
+        console.warn('⚠️ [JAVA] Failed to cleanup temp file after error:', cleanupError);
+      }
+    }
+    
     throw error;
   }
 }
 
 function extractFunctionName(userSnippet: string): string {
+  console.log('🔍 [JAVA-EXTRACT] Extracting function name from:', userSnippet);
+  
   // Extract function name from patterns like:
   // "public boolean isValid(String s) {" -> "isValid"
   // "public int maxSubArray(int[] nums) {" -> "maxSubArray"
   const functionMatch = userSnippet.match(/public\s+\w+\s+(\w+)\s*\(/);
   if (!functionMatch) {
+    console.error('❌ [JAVA-EXTRACT] Could not extract function name from userSnippet');
+    console.error('❌ [JAVA-EXTRACT] UserSnippet:', userSnippet);
     throw new Error('Could not extract function name from userSnippet');
   }
-  return functionMatch[1];
+  
+  const functionName = functionMatch[1];
+  console.log('✅ [JAVA-EXTRACT] Extracted function name:', functionName);
+  return functionName;
 }
 
 function generateJavaCode(stub: any, userCode: string, testcases: any[], functionName: string): string {
+  console.log('📝 [JAVA-GENERATE] Generating Java code...');
+  console.log('📝 [JAVA-GENERATE] Input parameters:');
+  console.log('  - Start snippet length:', stub.startSnippet?.length || 0);
+  console.log('  - User code length:', userCode.length);
+  console.log('  - End snippet length:', stub.endSnippet?.length || 0);
+  console.log('  - Test cases count:', testcases.length);
+  console.log('  - Function name:', functionName);
+  
   const startSnippet = stub.startSnippet || '';
   const endSnippet = stub.endSnippet || '';
   
@@ -94,11 +189,18 @@ import java.util.regex.Matcher;
   
   // Combine the code
   const solutionCode = `${imports}${startSnippet}\n${userCode}\n${endSnippet}`;
+  console.log('📝 [JAVA-GENERATE] Solution code length:', solutionCode.length);
   
   // Generate test runner
+  console.log('📝 [JAVA-GENERATE] Generating test runner...');
   const testRunner = generateJavaTestRunner(testcases, functionName);
+  console.log('📝 [JAVA-GENERATE] Test runner length:', testRunner.length);
   
-  return `${solutionCode}\n\n${testRunner}`;
+  const completeCode = `${solutionCode}\n\n${testRunner}`;
+  console.log('📝 [JAVA-GENERATE] Complete code length:', completeCode.length);
+  console.log('✅ [JAVA-GENERATE] Code generation completed');
+  
+  return completeCode;
 }
 
 function generateJavaTestRunner(testcases: any[], functionName: string): string {
@@ -167,17 +269,27 @@ function generateJavaTestRunner(testcases: any[], functionName: string): string 
 }
 
 async function executeJavaInDocker(tempFile: string, testCaseCount: number): Promise<ExecutionResponse> {
+  console.log('🐳 [JAVA-DOCKER] Starting Docker execution...');
+  console.log('🐳 [JAVA-DOCKER] Input parameters:');
+  console.log('  - Temp file:', tempFile);
+  console.log('  - Test case count:', testCaseCount);
+  console.log('  - Temp file exists:', require('fs').existsSync(tempFile));
+  
   return new Promise(async (resolve, reject) => {
+    let container: any = null;
+    
     try {
       // Pull Java Docker image if not exists
+      console.log('🐳 [JAVA-DOCKER] Pulling Docker image...');
       await pullDockerImage('openjdk:11-jdk-slim');
+      console.log('✅ [JAVA-DOCKER] Docker image ready');
       
       // Create container
+      console.log('🐳 [JAVA-DOCKER] Creating Docker container...');
       const container = await docker.createContainer({
         Image: 'openjdk:11-jdk-slim',
-        Cmd: ['sh', '-c', 'echo "=== Copying file ===" && cp /tmp/source.java /app/Solution.java && echo "=== Current directory ===" && pwd && echo "=== Listing /app ===" && ls -la /app && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
+        Cmd: ['sh', '-c', 'echo "=== Current directory ===" && pwd && echo "=== Listing /app ===" && ls -la /app && echo "=== File content ===" && cat /app/Solution.java && echo "=== Compiling ===" && cd /app && javac Solution.java && echo "=== Running ===" && java Solution'],
         HostConfig: {
-          Binds: [`${tempFile}:/tmp/source.java:ro`],
           Memory: 512 * 1024 * 1024, // 512MB memory limit
           MemorySwap: 0,
           CpuPeriod: 100000,
@@ -195,17 +307,49 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
         StdinOnce: false
       });
 
-      console.log('🐳 [JAVA] Created Docker container:', container.id);
+      console.log('🐳 [JAVA-DOCKER] Created Docker container:', container.id);
+
+      // Copy file to container using putArchive
+      console.log('📁 [JAVA-DOCKER] Copying file to container...');
+      console.log('📁 [JAVA-DOCKER] File details:');
+      console.log('  - File path:', tempFile);
+      console.log('  - File size:', require('fs').statSync(tempFile).size, 'bytes');
+      console.log('  - File directory:', require('path').dirname(tempFile));
+      console.log('  - File basename:', require('path').basename(tempFile));
+      
+      const tar = require('tar');
+      const { Readable } = require('stream');
+      
+      // Create a tar stream with the Java file
+      console.log('📁 [JAVA-DOCKER] Creating tar stream...');
+      const tarStream = tar.c({
+        gzip: false,
+        cwd: require('path').dirname(tempFile)
+      }, [require('path').basename(tempFile)]);
+      
+      // Convert stream to buffer
+      console.log('📁 [JAVA-DOCKER] Converting tar stream to buffer...');
+      const chunks: Buffer[] = [];
+      tarStream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      await new Promise((resolve) => tarStream.on('end', resolve));
+      const tarBuffer = Buffer.concat(chunks);
+      console.log('📁 [JAVA-DOCKER] Tar buffer size:', tarBuffer.length, 'bytes');
+      
+      // Put the archive into the container
+      console.log('📁 [JAVA-DOCKER] Putting archive into container...');
+      await container.putArchive(tarBuffer, { path: '/app' });
+      console.log('✅ [JAVA-DOCKER] File copied to container');
 
       // Start container
+      console.log('🚀 [JAVA-DOCKER] Starting container...');
       await container.start();
-      console.log('🚀 [JAVA] Started container');
+      console.log('🚀 [JAVA-DOCKER] Container started successfully');
       
-      // Log the actual file content that will be in the container
-      console.log('📁 [JAVA] File content to be copied:');
+      // Log the file content that was copied
+      console.log('📁 [JAVA-DOCKER] File content that was copied:');
       const fileContent = await require('fs').readFileSync(tempFile, 'utf8');
-      console.log('📁 [JAVA] File size in container:', fileContent.length, 'bytes');
-      console.log('📁 [JAVA] First 10 lines in container:');
+      console.log('📁 [JAVA-DOCKER] File size:', fileContent.length, 'bytes');
+      console.log('📁 [JAVA-DOCKER] First 10 lines:');
       fileContent.split('\n').slice(0, 10).forEach((line, i) => {
         console.log(`    ${i + 1}: ${line}`);
       });
@@ -213,114 +357,171 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
 
 
       // Get output stream
+      console.log('📤 [JAVA-DOCKER] Getting container logs stream...');
       const stream = await container.logs({
         stdout: true,
         stderr: true,
         follow: true,
         tail: 100
       });
+      console.log('📤 [JAVA-DOCKER] Log stream obtained');
 
       let stdout = '';
       let stderr = '';
       let hasOutput = false;
 
       // Set timeout for execution
+      console.log('⏰ [JAVA-DOCKER] Setting execution timeout (10 seconds)...');
       const timeout = setTimeout(async () => {
-        console.log('⏰ [JAVA] Execution timeout, killing container');
+        console.log('⏰ [JAVA-DOCKER] Execution timeout, killing container');
         try {
           await container.kill();
+          console.log('⏰ [JAVA-DOCKER] Container killed due to timeout');
         } catch (killError) {
-          console.warn('⚠️ [JAVA] Failed to kill container:', killError);
+          console.warn('⚠️ [JAVA-DOCKER] Failed to kill container:', killError);
         }
         reject(new Error('Execution timeout (10 seconds)'));
       }, 10000);
 
       // Process output stream
+      console.log('📤 [JAVA-DOCKER] Processing output stream...');
       if (stream && typeof stream.on === 'function') {
+        console.log('📤 [JAVA-DOCKER] Stream is valid, setting up event handlers');
+        
         stream.on('data', (chunk: Buffer) => {
           const data = chunk.toString('utf8');
           hasOutput = true;
+          console.log('📤 [JAVA-DOCKER] Received chunk:', chunk.length, 'bytes');
           
           // Remove Docker log headers (8-byte headers)
           const cleanData = removeDockerHeaders(data);
           
           if (cleanData) {
             stdout += cleanData;
+            console.log('📤 [JAVA-DOCKER] Clean data added to stdout');
+          } else {
+            console.log('📤 [JAVA-DOCKER] No clean data from chunk');
           }
         });
 
         stream.on('end', async () => {
+          console.log('📤 [JAVA-DOCKER] Stream ended');
           clearTimeout(timeout);
           
           try {
             // Get container info
+            console.log('📊 [JAVA-DOCKER] Getting container info...');
             const containerInfo = await container.inspect();
             const exitCode = containerInfo.State.ExitCode;
             
-            console.log('📊 [JAVA] Container exit code:', exitCode);
-            console.log('📤 [JAVA] Stdout:', stdout);
-            console.log('📤 [JAVA] Stderr:', stderr);
+            console.log('📊 [JAVA-DOCKER] Container exit code:', exitCode);
+            console.log('📤 [JAVA-DOCKER] Stdout length:', stdout.length);
+            console.log('📤 [JAVA-DOCKER] Stdout:', stdout);
+            console.log('📤 [JAVA-DOCKER] Stderr length:', stderr.length);
+            console.log('📤 [JAVA-DOCKER] Stderr:', stderr);
 
             // Clean up container
+            console.log('🧹 [JAVA-DOCKER] Removing container...');
             await container.remove();
-            console.log('🧹 [JAVA] Container removed');
+            console.log('🧹 [JAVA-DOCKER] Container removed');
 
             if (exitCode === 0) {
+              console.log('✅ [JAVA-DOCKER] Container exited successfully');
               // Parse test results
+              console.log('🔍 [JAVA-DOCKER] Parsing test results...');
               const results = parseJavaOutput(stdout, testCaseCount);
+              console.log('🔍 [JAVA-DOCKER] Parsed results:', results);
               resolve({
                 output: results.join('\n'),
                 status: 'success'
               });
             } else {
+              console.log('❌ [JAVA-DOCKER] Container exited with error code:', exitCode);
               // Handle compilation or execution errors
               const errorMessage = stderr || 'Execution failed with non-zero exit code';
+              console.log('❌ [JAVA-DOCKER] Error message:', errorMessage);
               reject(new Error(errorMessage));
             }
           } catch (cleanupError) {
-            console.error('❌ [JAVA] Cleanup error:', cleanupError);
+            console.error('❌ [JAVA-DOCKER] Cleanup error:', cleanupError);
+            console.error('❌ [JAVA-DOCKER] Cleanup error details:', {
+              message: cleanupError.message,
+              stack: cleanupError.stack
+            });
             reject(cleanupError);
           }
         });
 
         stream.on('error', (error) => {
           clearTimeout(timeout);
-          console.error('❌ [JAVA] Stream error:', error);
+          console.error('❌ [JAVA-DOCKER] Stream error:', error);
+          console.error('❌ [JAVA-DOCKER] Stream error details:', {
+            message: error.message,
+            stack: error.stack
+          });
           reject(error);
         });
       } else {
+        console.log('⚠️ [JAVA-DOCKER] Invalid stream, using fallback method...');
         // Fallback: wait for container to finish and get logs
         setTimeout(async () => {
           clearTimeout(timeout);
           try {
+            console.log('📤 [JAVA-DOCKER] Fallback: Getting container logs...');
             const logs = await container.logs({ stdout: true, stderr: true });
             const containerInfo = await container.inspect();
             const exitCode = containerInfo.State.ExitCode;
             
-            console.log('📊 [JAVA] Container exit code:', exitCode);
-            console.log('📤 [JAVA] Logs:', logs.toString());
+            console.log('📊 [JAVA-DOCKER] Fallback: Container exit code:', exitCode);
+            console.log('📤 [JAVA-DOCKER] Fallback: Logs length:', logs.length);
+            console.log('📤 [JAVA-DOCKER] Fallback: Logs:', logs.toString());
 
             await container.remove();
-            console.log('🧹 [JAVA] Container removed');
+            console.log('🧹 [JAVA-DOCKER] Fallback: Container removed');
 
             if (exitCode === 0) {
+              console.log('✅ [JAVA-DOCKER] Fallback: Container exited successfully');
               const results = parseJavaOutput(logs.toString(), testCaseCount);
+              console.log('🔍 [JAVA-DOCKER] Fallback: Parsed results:', results);
               resolve({
                 output: results.join('\n'),
                 status: 'success'
               });
             } else {
+              console.log('❌ [JAVA-DOCKER] Fallback: Container exited with error');
               reject(new Error('Execution failed with non-zero exit code'));
             }
           } catch (error) {
-            console.error('❌ [JAVA] Fallback error:', error);
+            console.error('❌ [JAVA-DOCKER] Fallback error:', error);
+            console.error('❌ [JAVA-DOCKER] Fallback error details:', {
+              message: error.message,
+              stack: error.stack
+            });
             reject(error);
           }
         }, 5000);
       }
 
     } catch (error) {
-      console.error('❌ [JAVA] Docker execution error:', error);
+      console.error('❌ [JAVA-DOCKER] Docker execution error:', error);
+      console.error('❌ [JAVA-DOCKER] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        tempFile: tempFile,
+        testCaseCount: testCaseCount
+      });
+      
+      // Clean up container on error
+      if (container) {
+        try {
+          console.log('🧹 [JAVA-DOCKER] Cleaning up container after error...');
+          await container.remove();
+          console.log('🧹 [JAVA-DOCKER] Container cleaned up after error');
+        } catch (cleanupError) {
+          console.warn('⚠️ [JAVA-DOCKER] Failed to cleanup container after error:', cleanupError);
+        }
+      }
+      
       reject(error);
     }
   });
