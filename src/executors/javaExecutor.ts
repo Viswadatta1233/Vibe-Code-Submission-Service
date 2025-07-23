@@ -189,7 +189,7 @@ import java.util.regex.Matcher;
   
   // Generate test runner
   console.log('📝 [JAVA-GENERATE] Generating test runner...');
-  const testRunner = generateJavaTestRunner(testcases, functionName);
+  const testRunner = generateJavaTestRunner(testcases, functionName, userCode);
   console.log('📝 [JAVA-GENERATE] Test runner length:', testRunner.length);
   
   // Combine the code with test runner INSIDE the class (before endSnippet)
@@ -205,7 +205,11 @@ ${endSnippet}`;
   return completeCode;
 }
 
-function generateJavaTestRunner(testcases: any[], functionName: string): string {
+function generateJavaTestRunner(testcases: any[], functionName: string, userCode: string): string {
+  // Extract parameter type from method signature
+  const parameterType = extractParameterType(userCode, functionName);
+  console.log('🔍 [JAVA-TESTGEN] Detected parameter type:', parameterType);
+  
   let testRunner = `    public static void main(String[] args) {
         Solution solution = new Solution();
         
@@ -218,41 +222,47 @@ function generateJavaTestRunner(testcases: any[], functionName: string): string 
     
     testRunner += `        // Test case ${index + 1}
         try {
-            String input${index + 1} = ${input};
+            String rawInput${index + 1} = ${input};
             String expected${index + 1} = "${expectedOutput}";
             Object result${index + 1} = null;
             
-            // Parse input and call method based on expected type
-            if (expected${index + 1}.equals("true") || expected${index + 1}.equals("false")) {
-                // Boolean return type - string input
-                String cleanInput = input${index + 1}.replaceAll("\\"", "");
-                result${index + 1} = solution.${functionName}(cleanInput);
-            } else if (expected${index + 1}.matches("-?\\\\d+")) {
-                // Integer return type
-                if (input${index + 1}.startsWith("[") && input${index + 1}.endsWith("]")) {
-                    // Array input
-                    String arrayStr = input${index + 1}.substring(1, input${index + 1}.length() - 1);
-                    if (arrayStr.trim().isEmpty()) {
-                        result${index + 1} = solution.${functionName}(new int[0]);
-                    } else {
-                        String[] parts = arrayStr.split(",");
-                        int[] nums = new int[parts.length];
-                        for (int j = 0; j < parts.length; j++) {
-                            nums[j] = Integer.parseInt(parts[j].trim());
-                        }
-                        result${index + 1} = solution.${functionName}(nums);
-                    }
-                } else {
-                    // Single integer input
-                    int num = Integer.parseInt(input${index + 1});
-                    result${index + 1} = solution.${functionName}(num);
-                }
+`;
+
+    // Generate different input parsing based on parameter type
+    if (parameterType === 'String') {
+      testRunner += `            // String parameter
+            String cleanInput = rawInput${index + 1}.replaceAll("\\"", "");
+            result${index + 1} = solution.${functionName}(cleanInput);
+`;
+    } else if (parameterType === 'int') {
+      testRunner += `            // Integer parameter
+            int intInput = Integer.parseInt(rawInput${index + 1});
+            result${index + 1} = solution.${functionName}(intInput);
+`;
+    } else if (parameterType === 'int[]') {
+      testRunner += `            // Integer array parameter
+            int[] arrayInput = null;
+            if (rawInput${index + 1}.equals("[]")) {
+                arrayInput = new int[0];
             } else {
-                // String return type - string input
-                String cleanInput = input${index + 1}.replaceAll("\\"", "");
-                result${index + 1} = solution.${functionName}(cleanInput);
+                String arrayStr = rawInput${index + 1}.substring(1, rawInput${index + 1}.length() - 1);
+                String[] parts = arrayStr.split(",");
+                arrayInput = new int[parts.length];
+                for (int j = 0; j < parts.length; j++) {
+                    arrayInput[j] = Integer.parseInt(parts[j].trim());
+                }
             }
-            
+            result${index + 1} = solution.${functionName}(arrayInput);
+`;
+    } else {
+      // Fallback to string
+      testRunner += `            // Fallback to string parameter
+            String cleanInput = rawInput${index + 1}.replaceAll("\\"", "");
+            result${index + 1} = solution.${functionName}(cleanInput);
+`;
+    }
+
+    testRunner += `            
             // Convert result to string for comparison
             String resultStr = String.valueOf(result${index + 1}).toLowerCase();
             String expectedStr = expected${index + 1}.toLowerCase();
@@ -269,6 +279,41 @@ function generateJavaTestRunner(testcases: any[], functionName: string): string 
   testRunner += `    }`;
 
   return testRunner;
+}
+
+function extractParameterType(userCode: string, functionName: string): string {
+  console.log('🔍 [JAVA-EXTRACT] Extracting parameter type for function:', functionName);
+  console.log('🔍 [JAVA-EXTRACT] User code snippet:', userCode.substring(0, 200) + '...');
+  
+  // Look for the method signature pattern
+  const methodPattern = new RegExp(`public\\s+\\w+\\s+${functionName}\\s*\\(([^)]+)\\)`, 'i');
+  const match = userCode.match(methodPattern);
+  
+  if (match && match[1]) {
+    const parameters = match[1].trim();
+    console.log('🔍 [JAVA-EXTRACT] Found parameters:', parameters);
+    
+    // Extract the type (first word before parameter name)
+    if (parameters.includes('int[]')) {
+      console.log('🔍 [JAVA-EXTRACT] Detected type: int[]');
+      return 'int[]';
+    } else if (parameters.includes('String')) {
+      console.log('🔍 [JAVA-EXTRACT] Detected type: String');
+      return 'String';
+    } else if (parameters.includes('int ')) {
+      console.log('🔍 [JAVA-EXTRACT] Detected type: int');
+      return 'int';
+    } else if (parameters.includes('boolean')) {
+      console.log('🔍 [JAVA-EXTRACT] Detected type: boolean');
+      return 'boolean';
+    } else if (parameters.includes('double')) {
+      console.log('🔍 [JAVA-EXTRACT] Detected type: double');
+      return 'double';
+    }
+  }
+  
+  console.log('🔍 [JAVA-EXTRACT] No match found, defaulting to String');
+  return 'String';
 }
 
 async function executeJavaInDocker(tempFile: string, testCaseCount: number): Promise<ExecutionResponse> {
