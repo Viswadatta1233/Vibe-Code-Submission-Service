@@ -65,7 +65,10 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
     // Send "Running" status update
     await Submission.findByIdAndUpdate(submissionId, { status: 'Running' });
     console.log('✅ [WORKER] Updated submission status to Running');
-    await sendWebSocketUpdate(userId, submissionId, { status: 'Running' });
+    await sendWebSocketUpdate(userId, submissionId, { 
+      status: 'Running',
+      progress: { completed: 0, total: testcases.length }
+    });
     
     // Add a small delay to make the "Running" state visible
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -75,86 +78,76 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
     
     console.log(`🔄 [WORKER] Processing ${testcases.length} test cases with ${language} executor...`);
     
-    // Use the appropriate executor based on language
+    // Process test cases one by one for incremental progress
     try {
-      let execResult;
-      
-      switch (language) {
-        case 'JAVA':
-          execResult = await runJava(problem, userCode);
-          break;
-        case 'PYTHON':
-          execResult = await runPython(problem, userCode);
-          break;
-        case 'CPP':
-          execResult = await runCpp(problem, userCode);
-          break;
-        default:
-          throw new Error(`Unsupported language: ${language}`);
-      }
-      
-      console.log('✅ [WORKER] Execution completed');
-      console.log('📤 [WORKER] Execution result:', execResult);
-      
-      // Parse the output to extract test results
-      const outputLines = execResult.output.trim().split('\n');
-      const testResults = [];
-      
       for (let i = 0; i < testcases.length; i++) {
-        const testcase = testcases[i];
-        const outputLine = outputLines[i];
+        const currentTestcase = testcases[i];
+        console.log(`🧪 [WORKER] Processing test case ${i + 1}/${testcases.length}...`);
         
-        if (!outputLine) {
-          // Missing output line
-          testResults.push({ 
-            testcase, 
-            output: '', 
-            passed: false, 
-            error: 'No output received' 
-          });
-          status = 'WA';
-          continue;
+        // Create a temporary problem with only the current test case
+        const singleTestProblem = {
+          ...problem,
+          testcases: [currentTestcase]
+        };
+        
+        let execResult;
+        
+        switch (language) {
+          case 'JAVA':
+            execResult = await runJava(singleTestProblem, userCode);
+            break;
+          case 'PYTHON':
+            execResult = await runPython(singleTestProblem, userCode);
+            break;
+          case 'CPP':
+            execResult = await runCpp(singleTestProblem, userCode);
+            break;
+          default:
+            throw new Error(`Unsupported language: ${language}`);
         }
         
-        // Handle both formats: "TEST_1:result" and direct result
-        let actualOutput;
-        if (outputLine.includes('TEST_')) {
-          // Parse output line format: "TEST_1:result"
-          const match = outputLine.match(/TEST_\d+:(.+)/);
-          if (!match) {
-            testResults.push({ 
-              testcase, 
-              output: outputLine, 
-              passed: false, 
-              error: 'Invalid output format' 
-            });
-            status = 'WA';
-            continue;
+        console.log(`📤 [WORKER] Test case ${i + 1} execution result:`, execResult);
+        
+        // Parse the output for this single test case
+        const outputLines = execResult.output.trim().split('\n');
+        let actualOutput = '';
+        
+        // Find the test result line
+        for (const line of outputLines) {
+          if (line.includes('TEST_1:') || (!line.includes('TEST_') && line.trim() !== '')) {
+            if (line.includes('TEST_1:')) {
+              const match = line.match(/TEST_1:(.+)/);
+              actualOutput = match ? match[1].trim() : '';
+            } else {
+              actualOutput = line.trim();
+            }
+            break;
           }
-          actualOutput = match[1].trim();
-        } else {
-          // Direct result format (new format)
-          actualOutput = outputLine.trim();
         }
         
-        const expectedOutput = testcase.output.trim();
+        const expectedOutput = currentTestcase.output.trim();
         const passed = actualOutput === expectedOutput;
         
-        testResults.push({ 
-          testcase, 
-          output: actualOutput, 
-          passed 
-        });
+        const testResult = {
+          testcase: currentTestcase,
+          output: actualOutput,
+          passed,
+          error: actualOutput === '' ? 'No output received' : undefined
+        };
+        
+        results.push(testResult);
         
         if (!passed) {
           status = 'WA';
         }
         
-        // Send incremental update after each test case
-        console.log(`✅ Test case ${i + 1}/${testcases.length} completed: ${passed ? 'PASSED' : 'FAILED'}`);
+        // Send incremental progress update
+        console.log(`✅ [WORKER] Test case ${i + 1}/${testcases.length} completed: ${passed ? 'PASSED' : 'FAILED'}`);
+        
         await sendWebSocketUpdate(userId, submissionId, { 
-          status: status === 'WA' ? 'WA' : 'Running', 
-          results: testResults.map(result => ({
+          status: status === 'WA' && i === testcases.length - 1 ? 'WA' : 'Running',
+          progress: { completed: i + 1, total: testcases.length },
+          results: results.map(result => ({
             testcase: result.testcase,
             output: result.output,
             passed: result.passed,
@@ -163,27 +156,31 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
         });
         
         // Add a small delay to make progress visible
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
-      
-      results = testResults;
       
     } catch (execError: any) {
       console.error('❌ [WORKER] Execution failed:', execError);
       status = 'RE';
-      results = testcases.map((testcase: any) => ({ 
-        testcase, 
-        output: '', 
-        error: execError.message || 'Execution failed' 
-      }));
+      
+      // Fill remaining test cases with errors
+      while (results.length < testcases.length) {
+        results.push({
+          testcase: testcases[results.length],
+          output: '',
+          passed: false,
+          error: execError.message || 'Execution failed'
+        });
+      }
       
       // Send error update
       await sendWebSocketUpdate(userId, submissionId, { 
-        status: 'RE', 
+        status: 'RE',
+        progress: { completed: testcases.length, total: testcases.length },
         results: results.map(result => ({
           testcase: result.testcase,
           output: result.output,
-          passed: false,
+          passed: result.passed,
           error: result.error
         }))
       });
@@ -206,6 +203,7 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
     // Send final status update
     await sendWebSocketUpdate(userId, submissionId, { 
       status,
+      progress: { completed: testcases.length, total: testcases.length },
       results: results.map(result => ({
         testcase: result.testcase,
         output: result.output,
@@ -228,6 +226,7 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
     // Send error update
     await sendWebSocketUpdate(userId, submissionId, { 
       status: 'Failed',
+      progress: { completed: 0, total: testcases.length },
       error: error.message || 'Unknown error occurred'
     });
   }
