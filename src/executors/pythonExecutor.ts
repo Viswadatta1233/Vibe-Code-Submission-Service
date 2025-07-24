@@ -504,7 +504,25 @@ async function executePythonInDocker(tempFile: string, testCaseCount: number): P
             } else {
               console.log('❌ [PYTHON-DOCKER] Container exited with error code:', exitCode);
               // Handle compilation or execution errors
-              const errorMessage = stderr || 'Execution failed with non-zero exit code';
+              // Check both stderr and stdout for error messages
+              let errorMessage = stderr;
+              if (!errorMessage && stdout) {
+                // Look for Python errors or exceptions in stdout
+                const lines = stdout.split('\n');
+                const errorLines = lines.filter(line => 
+                  line.includes('Error:') || 
+                  line.includes('Exception:') || 
+                  line.includes('Traceback') ||
+                  line.includes('SyntaxError') ||
+                  line.includes('IndentationError') ||
+                  line.includes('NameError') ||
+                  line.includes('TypeError')
+                );
+                if (errorLines.length > 0) {
+                  errorMessage = errorLines.join('\n');
+                }
+              }
+              errorMessage = errorMessage || 'Execution failed with non-zero exit code';
               console.log('❌ [PYTHON-DOCKER] Error message:', errorMessage);
               resolve({
                 output: '',
@@ -559,10 +577,31 @@ async function executePythonInDocker(tempFile: string, testCaseCount: number): P
               });
             } else {
               console.log('❌ [PYTHON-DOCKER] Fallback: Container exited with error');
+              // Check both stderr and stdout for error messages in fallback
+              const logsStr = logs.toString();
+              let errorMessage = '';
+              
+              // Look for Python errors or exceptions in logs
+              const lines = logsStr.split('\n');
+              const errorLines = lines.filter(line => 
+                line.includes('Error:') || 
+                line.includes('Exception:') || 
+                line.includes('Traceback') ||
+                line.includes('SyntaxError') ||
+                line.includes('IndentationError') ||
+                line.includes('NameError') ||
+                line.includes('TypeError')
+              );
+              if (errorLines.length > 0) {
+                errorMessage = errorLines.join('\n');
+              }
+              
+              errorMessage = errorMessage || 'Execution failed with non-zero exit code';
+              console.log('❌ [PYTHON-DOCKER] Fallback: Error message:', errorMessage);
               resolve({
                 output: '',
                 status: 'error',
-                error: 'Execution failed with non-zero exit code'
+                error: errorMessage
               });
             }
           } catch (error) {

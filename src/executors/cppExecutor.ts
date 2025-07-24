@@ -540,7 +540,22 @@ async function executeCppInDocker(tempFile: string, testCaseCount: number): Prom
             } else {
               console.log('❌ [CPP-DOCKER] Container exited with error code:', exitCode);
               // Handle compilation or execution errors
-              const errorMessage = stderr || 'Execution failed with non-zero exit code';
+              // Check both stderr and stdout for error messages
+              let errorMessage = stderr;
+              if (!errorMessage && stdout) {
+                // Look for compilation errors or warnings in stdout
+                const lines = stdout.split('\n');
+                const errorLines = lines.filter(line => 
+                  line.includes('error:') || 
+                  line.includes('warning:') || 
+                  line.includes('In member function') ||
+                  line.includes('no return statement')
+                );
+                if (errorLines.length > 0) {
+                  errorMessage = errorLines.join('\n');
+                }
+              }
+              errorMessage = errorMessage || 'Execution failed with non-zero exit code';
               console.log('❌ [CPP-DOCKER] Error message:', errorMessage);
               resolve({
                 output: '',
@@ -595,10 +610,28 @@ async function executeCppInDocker(tempFile: string, testCaseCount: number): Prom
               });
             } else {
               console.log('❌ [CPP-DOCKER] Fallback: Container exited with error');
+              // Check both stderr and stdout for error messages in fallback
+              const logsStr = logs.toString();
+              let errorMessage = '';
+              
+              // Look for compilation errors or warnings in logs
+              const lines = logsStr.split('\n');
+              const errorLines = lines.filter(line => 
+                line.includes('error:') || 
+                line.includes('warning:') || 
+                line.includes('In member function') ||
+                line.includes('no return statement')
+              );
+              if (errorLines.length > 0) {
+                errorMessage = errorLines.join('\n');
+              }
+              
+              errorMessage = errorMessage || 'Execution failed with non-zero exit code';
+              console.log('❌ [CPP-DOCKER] Fallback: Error message:', errorMessage);
               resolve({
                 output: '',
                 status: 'error',
-                error: 'Execution failed with non-zero exit code'
+                error: errorMessage
               });
             }
           } catch (error) {

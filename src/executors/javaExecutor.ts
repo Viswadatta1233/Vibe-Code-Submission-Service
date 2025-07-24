@@ -487,7 +487,25 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
             } else {
               console.log('❌ [JAVA-DOCKER] Container exited with error code:', exitCode);
               // Handle compilation or execution errors
-              const errorMessage = stderr || 'Execution failed with non-zero exit code';
+              // Check both stderr and stdout for error messages
+              let errorMessage = stderr;
+              if (!errorMessage && stdout) {
+                // Look for Java compilation errors or exceptions in stdout
+                const lines = stdout.split('\n');
+                const errorLines = lines.filter(line => 
+                  line.includes('error:') || 
+                  line.includes('Exception') || 
+                  line.includes('Error') ||
+                  line.includes('compilation failed') ||
+                  line.includes('cannot find symbol') ||
+                  line.includes('missing return statement') ||
+                  line.includes('unreachable statement')
+                );
+                if (errorLines.length > 0) {
+                  errorMessage = errorLines.join('\n');
+                }
+              }
+              errorMessage = errorMessage || 'Execution failed with non-zero exit code';
               console.log('❌ [JAVA-DOCKER] Error message:', errorMessage);
               resolve({
                 output: '',
@@ -542,10 +560,31 @@ async function executeJavaInDocker(tempFile: string, testCaseCount: number): Pro
               });
             } else {
               console.log('❌ [JAVA-DOCKER] Fallback: Container exited with error');
+              // Check both stderr and stdout for error messages in fallback
+              const logsStr = logs.toString();
+              let errorMessage = '';
+              
+              // Look for Java compilation errors or exceptions in logs
+              const lines = logsStr.split('\n');
+              const errorLines = lines.filter(line => 
+                line.includes('error:') || 
+                line.includes('Exception') || 
+                line.includes('Error') ||
+                line.includes('compilation failed') ||
+                line.includes('cannot find symbol') ||
+                line.includes('missing return statement') ||
+                line.includes('unreachable statement')
+              );
+              if (errorLines.length > 0) {
+                errorMessage = errorLines.join('\n');
+              }
+              
+              errorMessage = errorMessage || 'Execution failed with non-zero exit code';
+              console.log('❌ [JAVA-DOCKER] Fallback: Error message:', errorMessage);
               resolve({
                 output: '',
                 status: 'error',
-                error: 'Execution failed with non-zero exit code'
+                error: errorMessage
               });
             }
           } catch (error) {
