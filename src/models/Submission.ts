@@ -6,6 +6,9 @@ export interface ISubmission extends Document {
   code: string;
   language: string;
   status: 'Pending' | 'Running' | 'Success' | 'RE' | 'TLE' | 'MLE' | 'WA' | 'Failed';
+  percentage?: number;
+  passedCount?: number;
+  totalCount?: number;
   results?: Array<{
     testcase: {
       _id: Types.ObjectId;
@@ -28,6 +31,9 @@ const submissionSchema = new Schema<ISubmission>({
     enum: ['Pending', 'Running', 'Success', 'RE', 'TLE', 'MLE', 'WA', 'Failed'],
     default: 'Pending',
   },
+  percentage: { type: Number, default: 0 },
+  passedCount: { type: Number, default: 0 },
+  totalCount: { type: Number, default: 0 },
   results: [{
     testcase: {
       _id: { type: Schema.Types.ObjectId, required: true },

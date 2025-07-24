@@ -144,9 +144,16 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
         // Send incremental progress update
         console.log(`✅ [WORKER] Test case ${i + 1}/${testcases.length} completed: ${passed ? 'PASSED' : 'FAILED'}`);
         
+        // Calculate current percentage
+        const currentPassedCount = results.filter(result => result.passed).length;
+        const currentPercentage = results.length > 0 ? Math.round((currentPassedCount / testcases.length) * 100) : 0;
+        
         await sendWebSocketUpdate(userId, submissionId, { 
           status: status === 'WA' && i === testcases.length - 1 ? 'WA' : 'Running',
           progress: { completed: i + 1, total: testcases.length },
+          percentage: currentPercentage,
+          passedCount: currentPassedCount,
+          totalCount: testcases.length,
           results: results.map(result => ({
             testcase: result.testcase,
             output: result.output,
@@ -173,10 +180,18 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
         });
       }
       
+      // Calculate percentage for error case
+      const passedCount = results.filter(result => result.passed).length;
+      const totalCount = results.length;
+      const percentage = totalCount > 0 ? Math.round((passedCount / totalCount) * 100) : 0;
+      
       // Send error update
       await sendWebSocketUpdate(userId, submissionId, { 
         status: 'RE',
         progress: { completed: testcases.length, total: testcases.length },
+        percentage: percentage,
+        passedCount: passedCount,
+        totalCount: totalCount,
         results: results.map(result => ({
           testcase: result.testcase,
           output: result.output,
@@ -189,6 +204,13 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
     console.log(`✅ [WORKER] All test cases processed. Final status: ${status}`);
     console.log(`📊 [WORKER] Results:`, results);
     
+    // Calculate overall percentage based on passed test cases
+    const passedCount = results.filter(result => result.passed).length;
+    const totalCount = results.length;
+    const percentage = totalCount > 0 ? Math.round((passedCount / totalCount) * 100) : 0;
+    
+    console.log(`📊 [WORKER] Test Results Summary: ${passedCount}/${totalCount} passed (${percentage}%)`);
+    
     // Update submission in DB
     await Submission.findByIdAndUpdate(submissionId, { 
       status,
@@ -197,13 +219,19 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
         output: result.output,
         passed: result.passed,
         error: result.error
-      }))
+      })),
+      percentage: percentage,
+      passedCount: passedCount,
+      totalCount: totalCount
     });
     
     // Send final status update
     await sendWebSocketUpdate(userId, submissionId, { 
       status,
       progress: { completed: testcases.length, total: testcases.length },
+      percentage: percentage,
+      passedCount: passedCount,
+      totalCount: totalCount,
       results: results.map(result => ({
         testcase: result.testcase,
         output: result.output,
@@ -220,13 +248,19 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
     // Update submission status to failed
     await Submission.findByIdAndUpdate(submissionId, { 
       status: 'Failed',
-      results: []
+      results: [],
+      percentage: 0,
+      passedCount: 0,
+      totalCount: testcases.length
     });
     
     // Send error update
     await sendWebSocketUpdate(userId, submissionId, { 
       status: 'Failed',
       progress: { completed: 0, total: testcases.length },
+      percentage: 0,
+      passedCount: 0,
+      totalCount: testcases.length,
       error: error.message || 'Unknown error occurred'
     });
   }
