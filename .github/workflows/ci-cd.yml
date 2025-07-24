@@ -98,6 +98,10 @@ jobs:
         ls -la /var/run/docker.sock
         echo "Checking docker group..."
         getent group docker || echo "Docker group does not exist"
+        # Get the actual docker group ID
+                 DOCKER_GID=$(getent group docker | cut -d: -f3 2>/dev/null || echo "988")
+        echo "Docker group ID: $DOCKER_GID"
+        echo "DOCKER_GID=$DOCKER_GID" >> $GITHUB_ENV
         echo "Current user groups:"
         groups
         
@@ -123,9 +127,9 @@ jobs:
           --env-file /var/www/submission-service/.env \
           -p 5001:5001 \
           --add-host host.docker.internal:host-gateway \
-          -v /var/run/docker.sock:/var/run/docker.sock \
-          --group-add 999 \
-          ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}
+                     -v /var/run/docker.sock:/var/run/docker.sock \
+           --group-add ${DOCKER_GID:-988} \
+           ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}
         
     - name: Wait for main service to be ready
       run: |
@@ -146,8 +150,9 @@ jobs:
           --restart unless-stopped \
           --env-file /var/www/submission-service/.env \
           --add-host host.docker.internal:host-gateway \
-          -v /var/run/docker.sock:/var/run/docker.sock \
-          --group-add 999 \
+                     -v /var/run/docker.sock:/var/run/docker.sock \
+           --group-add ${DOCKER_GID:-988} \
+           --privileged \
           ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKER_WORKER_IMAGE }}:${{ env.DOCKER_TAG }}
         
     - name: Wait for worker to be ready
