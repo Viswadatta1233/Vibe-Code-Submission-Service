@@ -19,6 +19,7 @@ export interface Problem {
 export interface ExecutionResponse {
   output: string;
   status: string;
+  error?: string;
 }
 
 export interface SubmissionData {

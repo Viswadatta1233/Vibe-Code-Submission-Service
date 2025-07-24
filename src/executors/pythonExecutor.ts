@@ -443,7 +443,11 @@ async function executePythonInDocker(tempFile: string, testCaseCount: number): P
         } catch (killError) {
           console.warn('⚠️ [PYTHON-DOCKER] Failed to kill container:', killError);
         }
-        reject(new Error('Execution timeout (10 seconds)'));
+        resolve({
+          output: '',
+          status: 'error',
+          error: 'Execution timeout (10 seconds)'
+        });
       }, 10000);
 
       // Process output stream
@@ -502,7 +506,11 @@ async function executePythonInDocker(tempFile: string, testCaseCount: number): P
               // Handle compilation or execution errors
               const errorMessage = stderr || 'Execution failed with non-zero exit code';
               console.log('❌ [PYTHON-DOCKER] Error message:', errorMessage);
-              reject(new Error(errorMessage));
+              resolve({
+                output: '',
+                status: 'error',
+                error: errorMessage
+              });
             }
           } catch (cleanupError) {
             console.error('❌ [PYTHON-DOCKER] Cleanup error:', cleanupError);
@@ -551,7 +559,11 @@ async function executePythonInDocker(tempFile: string, testCaseCount: number): P
               });
             } else {
               console.log('❌ [PYTHON-DOCKER] Fallback: Container exited with error');
-              reject(new Error('Execution failed with non-zero exit code'));
+              resolve({
+                output: '',
+                status: 'error',
+                error: 'Execution failed with non-zero exit code'
+              });
             }
           } catch (error) {
             console.error('❌ [PYTHON-DOCKER] Fallback error:', error);

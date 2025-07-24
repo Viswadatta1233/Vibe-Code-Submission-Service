@@ -108,6 +108,67 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
         
         console.log(`📤 [WORKER] Test case ${i + 1} execution result:`, execResult);
         
+        // Check if execution failed with an error
+        if (execResult.status === 'error' && execResult.error) {
+          console.log(`❌ [WORKER] Test case ${i + 1} failed with error:`, execResult.error);
+          const testResult = {
+            testcase: currentTestcase,
+            output: '',
+            passed: false,
+            error: execResult.error
+          };
+          results.push(testResult);
+          
+          // Set status to RE (Runtime Error) and fill remaining test cases with the same error
+          status = 'RE';
+          
+          // Fill remaining test cases with the same error
+          while (results.length < testcases.length) {
+            results.push({
+              testcase: testcases[results.length],
+              output: '',
+              passed: false,
+              error: execResult.error
+            });
+          }
+          
+          // Send error update immediately
+          const passedCount = results.filter(result => result.passed).length;
+          const totalCount = results.length;
+          const percentage = totalCount > 0 ? Math.round((passedCount / totalCount) * 100) : 0;
+          
+          await sendWebSocketUpdate(userId, submissionId, { 
+            status: 'RE',
+            progress: { completed: testcases.length, total: testcases.length },
+            percentage: percentage,
+            passedCount: passedCount,
+            totalCount: totalCount,
+            results: results.map(result => ({
+              testcase: result.testcase,
+              output: result.output,
+              passed: result.passed,
+              error: result.error
+            }))
+          });
+          
+          // Update submission in DB and return early
+          await Submission.findByIdAndUpdate(submissionId, { 
+            status: 'RE',
+            results: results.map(result => ({
+              testcase: result.testcase,
+              output: result.output,
+              passed: result.passed,
+              error: result.error
+            })),
+            percentage: percentage,
+            passedCount: passedCount,
+            totalCount: totalCount
+          });
+          
+          console.log(`✅ [WORKER] Job completed with error: ${submissionId}`);
+          return;
+        }
+        
         // Parse the output for this single test case
         const outputLines = execResult.output.trim().split('\n');
         let actualOutput = '';
@@ -168,7 +229,22 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
       
     } catch (execError: any) {
       console.error('❌ [WORKER] Execution failed:', execError);
+      console.error('❌ [WORKER] Error details:', {
+        message: execError.message,
+        stack: execError.stack,
+        stderr: execError.stderr
+      });
       status = 'RE';
+      
+      // Extract the actual error message from the executor
+      let errorMessage = 'Execution failed';
+      if (execError.message && execError.message !== 'Execution failed with non-zero exit code') {
+        errorMessage = execError.message;
+      } else if (execError.stderr) {
+        errorMessage = execError.stderr;
+      } else if (execError.message) {
+        errorMessage = execError.message;
+      }
       
       // Fill remaining test cases with errors
       while (results.length < testcases.length) {
@@ -176,7 +252,7 @@ const submissionWorker = new Worker('submission-queue', async (job: Job) => {
           testcase: testcases[results.length],
           output: '',
           passed: false,
-          error: execError.message || 'Execution failed'
+          error: errorMessage
         });
       }
       
