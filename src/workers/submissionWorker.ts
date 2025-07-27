@@ -29,24 +29,42 @@ console.log('🔗 [WORKER] Redis connection options:', redisOptions);
 
 // Function to send WebSocket updates via HTTP
 async function sendWebSocketUpdate(userId: string, submissionId: string, data: any) {
-  console.log('📡 [WORKER] Sending WebSocket update:', { userId, submissionId, data });
-  try {
-    // Use host.docker.internal to connect to the host machine
-    const response = await axios.post('http://host.docker.internal:5001/api/websocket/update', {
-      userId, submissionId, data
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    if (response.status === 200) {
-      console.log(`✅ [WORKER] WebSocket update sent for user ${userId}, submission ${submissionId}`);
-    } else {
-      console.error(`❌ [WORKER] Failed to send WebSocket update for user ${userId}:`, response.statusText);
+  console.log('📡 [WORKER] Broadcasting WebSocket update to all containers:', { userId, submissionId, data });
+  
+  const containers = ['5001', '5002', '5003'];
+  const broadcastPromises = containers.map(async (port) => {
+    try {
+      const response = await axios.post(`http://host.docker.internal:${port}/api/websocket/update`, {
+        userId, submissionId, data
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 3000
+      });
+      
+      if (response.status === 200) {
+        console.log(`✅ [WORKER] WebSocket update sent successfully to container ${port} for user ${userId}, submission ${submissionId}`);
+        return { port, success: true };
+      } else {
+        console.error(`❌ [WORKER] Failed to send WebSocket update to container ${port} for user ${userId}:`, response.statusText);
+        return { port, success: false, error: response.statusText };
+      }
+    } catch (error: any) {
+      console.error(`❌ [WORKER] Error sending WebSocket update to container ${port} for user ${userId}:`, error.message);
+      return { port, success: false, error: error.message };
     }
-  } catch (error) {
-    console.error(`❌ [WORKER] Error sending WebSocket update for user ${userId}:`, error);
+  });
+  
+  // Wait for all broadcast attempts to complete
+  const results = await Promise.allSettled(broadcastPromises);
+  const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+  const failed = results.length - successful;
+  
+  console.log(`📊 [WORKER] Broadcast complete for user ${userId}, submission ${submissionId}: ${successful}/${containers.length} containers reached`);
+  
+  if (failed > 0) {
+    console.log(`⚠️ [WORKER] ${failed} containers failed to receive the update`);
   }
 }
 
